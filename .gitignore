@@ -1,0 +1,8 @@
+# 个人本地配置（首次生效需: git rm --cached .claude/settings.local.json）
+.claude/settings.local.json
+
+# 系统与工具产物
+.DS_Store
+Thumbs.db
+node_modules/
+.eslintcache

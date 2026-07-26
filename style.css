@@ -897,21 +897,32 @@ body::after {
   .total-burst .tb-chips, .total-burst .tb-mult { font-size: 26px; }
 }
 
-/* ===== 提示消息（原内联样式移入类） ===== */
-.flash-msg {
+/* ===== 提示消息 =====
+   #flash-stack 由 ui.flashMessage 自动创建：多条消息纵向堆叠，不再互相遮盖 */
+#flash-stack {
   position: fixed;
   top: 18%;
   left: 50%;
   transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  z-index: 300;
+  pointer-events: none;
+  max-width: min(94vw, 640px);
+}
+.flash-msg {
   background: rgba(10,20,18,.92);
   border: 2px solid #7a1fa0;
   border-radius: 12px;
   padding: 12px 26px;
   font-size: 18px;
   font-weight: 800;
-  z-index: 300;
+  text-align: center;
   animation: fadeIn .2s;
 }
+.update-toast { pointer-events: auto; cursor: pointer; border-color: #38bd64; }
 
 /* ===== 塔罗牌 ===== */
 .tarot-card {
@@ -1402,3 +1413,29 @@ body::after {
 .cl-sub .cl-item { width: 72px; padding: 6px 3px; }
 .cl-sub .cl-icon { font-size: 20px; }
 .cl-sub .cl-name { font-size: 9px; }
+
+/* ===== 移动端手感与安全区（v1.3.0） ===== */
+/* 连点选牌不再触发双击缩放/300ms 延迟 */
+button, .card, .joker, .consumable, .blind-option, .mode-chip, .so-joker, .dv-card, .cl-item {
+  touch-action: manipulation;
+}
+/* iOS 长按卡牌不弹出系统菜单 */
+.card, .joker, .consumable { -webkit-touch-callout: none; }
+/* 键盘聚焦可见（鼠标/触摸不显示焦点框） */
+.card:focus-visible, .joker:focus-visible, .consumable:focus-visible {
+  outline: 3px solid #f7d774;
+  outline-offset: 2px;
+}
+.card:focus:not(:focus-visible), .joker:focus:not(:focus-visible), .consumable:focus:not(:focus-visible) {
+  outline: none;
+}
+/* 禁止下拉刷新/边缘回弹打断对局 */
+html, body { overscroll-behavior-y: none; }
+/* 刘海屏安全区（配合 viewport-fit=cover） */
+@supports (padding: env(safe-area-inset-left)) {
+  #game {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}

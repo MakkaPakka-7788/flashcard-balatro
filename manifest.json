@@ -3,6 +3,7 @@
   "short_name": "小丑牌",
   "description": "Balatro 风格的纯前端网页卡牌游戏",
   "start_url": ".",
+  "id": "./",
   "display": "standalone",
   "orientation": "any",
   "background_color": "#0a1a16",

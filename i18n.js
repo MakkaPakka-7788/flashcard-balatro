@@ -132,7 +132,7 @@ const STR = {
   /* 幻灵牌 */
   spectral_label:    { zh: "幻灵牌", en: "Spectral" },
   cannot_use:        { zh: "当前无法使用", en: "Can't use this right now" },
-  no_cards_left:     { zh: "⚠️ 手牌耗尽！", en: "⚠️ Out of cards!" },
+  dead_end:          { zh: "⚠️ 无牌可打，本回合就此结算！", en: "⚠️ No playable hands left — the round ends now!" },
   msg_copied:        { zh: "复制了 2 张 {0} 进牌库", en: "Added 2 copies of {0} to your deck" },
 
   /* 标签 */
@@ -205,6 +205,7 @@ const STR = {
   /* 存档 */
   msg_restored:      { zh: "📂 已恢复上局进度", en: "📂 Progress restored" },
   msg_restored_blind:{ zh: "📂 已恢复上局进度（回到盲注选择）", en: "📂 Progress restored (back to blind select)" },
+  msg_restored_shop: { zh: "📂 已恢复上局进度（回到商店）", en: "📂 Progress restored (back to the shop)" },
 };
 
 function S(key, ...args) {

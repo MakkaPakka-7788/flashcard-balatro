@@ -39,13 +39,14 @@ function rng() {
 }
 const rnd = arr => arr[Math.floor(rng() * arr.length)];
 
-/* 字符串 → uint32 种子 (djb2)；今日挑战用本地日期 */
+/* 字符串 → uint32 种子 (djb2) */
 function hashStr(s) {
   let h = 5381;
   for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
   return h;
 }
-const todaySeed = () => hashStr("joker-" + new Date().toLocaleDateString("sv"));
+/* 今日/每周挑战统一按 UTC 日期取种子：全球同一时刻同一局（v1.3.0 起今日挑战由本地日期改为 UTC） */
+const todaySeed = () => hashStr("joker-" + new Date().toISOString().slice(0, 10));
 
 /* 每周挑战：ISO 周数哈希（全球同一周同一局） */
 function weekSeed() {
@@ -161,7 +162,7 @@ function saveGame() {
   if (G.jokers?.some(j => JOKER_BY_ID.get(j.id)?.rarity === "legendary")) awardAchievement("legendary");
   try {
     const data = {
-      v: 5,
+      v: 6,
       money: G.money, ante: G.ante, round: G.round,
       blindIndex: G.blindIndex, bossId: G.boss?.id,
       jokers: G.jokers.map(j => ({ id: j.id, uid: j.uid, state: j.state, ed: j.ed })),
@@ -178,8 +179,15 @@ function saveGame() {
       pendingPack: G.pendingPack,
       voucherDiscount: G.voucherDiscount, investment: G.investment, doubleTag: G.doubleTag,
       soldCount: G.soldCount,
-      state: G.state === "playing" ? "playing" : "other",
+      state: G.state === "playing" ? "playing" : G.state === "shop" ? "shop" : "other",
     };
+    // 商店中存档：v6 起货架随档保存，刷新页面不再错过本次商店
+    if (G.state === "shop" && Array.isArray(G.shopStock)) {
+      data.shop = {
+        stock: G.shopStock.map(i => ({ kind: i.kind, id: i.kind === "pack" ? i.def.kind : i.def.id, ed: i.ed || null, sold: !!i.sold })),
+        rerollCost: G.rerollCost,
+      };
+    }
     // 回合中存档：刷新后可从当前手牌继续
     if (G.state === "playing" && !G.scoring) {
       data.mid = {
@@ -189,6 +197,7 @@ function saveGame() {
         roundScore: G.roundScore, target: G.target,
         curHandSize: G.curHandSize, maxHands: G.maxHands, maxDiscards: G.maxDiscards,
         sortMode: G.sortMode || "rank",
+        disabledJokerUid: G.disabledJokerUid,
       };
     }
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
@@ -242,10 +251,26 @@ function loadGame() {
         sortMode: d.mid.sortMode || "rank",
       });
       G.currentBoss = activeBossFor(G);   // 含奇科禁用与 Boss Rush（旧写法回合中读档会丢 Boss Rush 减益）
+      G.disabledJokerUid = d.mid.disabledJokerUid ?? null;   // 猩红之心的禁用随档恢复
       $("blind-select").classList.add("hidden");
       $("shop").classList.add("hidden");
       render();
       flashMessage(S("msg_restored"));
+      checkDeadEnd();   // 空手牌残局的存档：恢复后立即结算而非软锁
+    } else if (d.state === "shop" && Array.isArray(d.shop?.stock)) {
+      // v6: 商店中存档 → 按 id 重建货架并回到商店（不重跑 rollShop / onShopEnter 钩子）
+      G.rerollCost = d.shop.rerollCost ?? BALANCE.rerollBase;
+      G.shopStock = d.shop.stock.map(s => {
+        const def = s.kind === "joker" ? JOKER_BY_ID.get(s.id)
+          : s.kind === "planet" ? PLANETS.find(p => p.id === s.id)
+          : s.kind === "tarot" ? TAROT_BY_ID.get(s.id)
+          : s.kind === "spectral" ? SPECTRAL_BY_ID.get(s.id)
+          : s.kind === "pack" ? PACKS.find(p => p.kind === s.id)
+          : VOUCHER_BY_ID.get(s.id);
+        return def ? { kind: s.kind, def, ed: s.ed || null, sold: !!s.sold } : null;
+      }).filter(Boolean);
+      restoreShop();
+      flashMessage(S("msg_restored_shop"));
     } else {
       showBlindSelect();
       render();
@@ -282,7 +307,7 @@ function newGameState(seed) {
     handPlayCounts: {},
     shopStock: [], rerollCost: 5,
     deckId: "classic", mode: "normal",
-    scoring: false, speed: 1,
+    scoring: false, speed: 1, _deadEnd: false,
     state: "blind-select",
   });
 }
@@ -388,25 +413,26 @@ function sortHand(mode) {
 function selectedCards() { return G.hand.filter(c => G.selected.has(c.id)); }
 
 /* ---------- 牌型判定 ---------- */
-function isDebuffed(card) {
-  if (!G.currentBoss) return false;
-  if (G.currentBoss.id === "mark") return ["J", "Q", "K"].includes(card.rank);
+function isDebuffed(card, g = G) {
+  if (!g.currentBoss) return false;
+  if (g.currentBoss.id === "mark") return ["J", "Q", "K"].includes(card.rank);
   const map = { club: "♣", goad: "♠", window: "♦", head: "♥" };
-  return map[G.currentBoss.id] === card.suit;
+  return map[g.currentBoss.id] === card.suit;
 }
 
-const hasJoker = id => !!G.jokers && G.jokers.some(j => j.id === id);
+const hasJoker = (id, g = G) => !!g.jokers && g.jokers.some(j => j.id === id);
 
-function evaluate(cards) {
-  const active = cards.filter(c => !isDebuffed(c));
+/* 与 computeScoring 一致：显式接受 g，不隐式读全局（保证注入任意状态时结果自洽） */
+function evaluate(cards, g = G) {
+  const active = cards.filter(c => !isDebuffed(c, g));
   const ranks = active.map(c => RANK_VAL[c.rank]);
   const counts = {};
   ranks.forEach(r => counts[r] = (counts[r] || 0) + 1);
   const groups = Object.values(counts).sort((a, b) => b - a);
   const suits = new Set(active.map(c => c.suit));
   // 四指: 4 张即可组成同花/顺子；抄近路: 顺子允许跳 1 个点数
-  const minRun = hasJoker("four_fingers") ? 4 : 5;
-  const maxGap = hasJoker("shortcut") ? 2 : 1;
+  const minRun = hasJoker("four_fingers", g) ? 4 : 5;
+  const maxGap = hasJoker("shortcut", g) ? 2 : 1;
   const isFlush = active.length >= minRun && suits.size === 1;
   let isStraight = false;
   if (active.length >= minRun && new Set(ranks).size === active.length) {
@@ -430,7 +456,7 @@ function evaluate(cards) {
 
   // 计分牌：组成牌型的牌（高牌只算最大那张）；飞溅: 全部参与
   let scoringCards;
-  if (hasJoker("splash")) {
+  if (hasJoker("splash", g)) {
     scoringCards = active.slice();
   } else if (type === "high_card") {
     const best = active.slice().sort((a, b) => RANK_VAL[b.rank] - RANK_VAL[a.rank])[0];
@@ -448,9 +474,9 @@ function evaluate(cards) {
   };
 }
 
-function handStats(type) {
+function handStats(type, g = G) {
   const def = HAND_TYPES[type];
-  const lvl = G.handLevels[type];
+  const lvl = g.handLevels[type];
   return {
     chips: def.chips + def.up[0] * (lvl - 1),
     mult: def.mult + def.up[1] * (lvl - 1),
@@ -479,8 +505,8 @@ function scoringJokers(g) {
    playHand 只负责按步骤播放，测试可直接断言 total。
    顺序: 牌型基础 → 逐卡(含重触发/小丑 perCard) → 手中牌(钢铁/heldCard 小丑) → 小丑版本+after */
 function computeScoring(cards, g = G) {
-  const ev = evaluate(cards);
-  const stats = handStats(ev.type);
+  const ev = evaluate(cards, g);
+  const stats = handStats(ev.type, g);
   // 打出的牌全部被 Boss 禁用 → 0 分
   if (cards.length > 0 && ev.activeCount === 0) {
     return { ev, stats, ctx: null, steps: [], chips: 0, mult: 0, total: 0, allDebuffed: true };
@@ -489,7 +515,7 @@ function computeScoring(cards, g = G) {
     type: ev.type, cards, playedCount: cards.length,
     scoringCards: ev.scoringCards,
     hasPair: ev.hasPair, hasThree: ev.hasThree,
-    firstFace: cards.find(c => ["J", "Q", "K"].includes(c.rank) && !isDebuffed(c)) || null,
+    firstFace: cards.find(c => ["J", "Q", "K"].includes(c.rank) && !isDebuffed(c, g)) || null,
   };
   const sj = scoringJokers(g);
   let chips = stats.chips, mult = stats.mult;
@@ -553,10 +579,13 @@ function computeScoring(cards, g = G) {
 }
 
 /* ---------- 商店库存 ---------- */
-/* 小丑版本掉落: 3% 多彩 / 7% 全息 / 10% 闪箔 */
+/* 小丑版本掉率见 BALANCE.editionRates（累进阈值，默认 3% 多彩 / 7% 全息 / 10% 闪箔） */
 function rollEdition() {
-  const r = rng();
-  return r < 0.03 ? "poly" : r < 0.10 ? "holo" : r < 0.20 ? "foil" : null;
+  const r = rng(), e = BALANCE.editionRates;
+  if (r < e.poly) return "poly";
+  if (r < e.poly + e.holo) return "holo";
+  if (r < e.poly + e.holo + e.foil) return "foil";
+  return null;
 }
 
 function rollShop() {

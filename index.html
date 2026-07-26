@@ -2,13 +2,20 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>小丑牌 · JOKER</title>
 <meta name="theme-color" content="#0a1a16">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="stylesheet" href="style.css">
+<!-- defer: 并行下载、按序执行，首屏更快；加载顺序约定见 CLAUDE.md -->
+<script src="i18n.js" defer></script>
+<script src="defs.js" defer></script>
+<script src="engine.js" defer></script>
+<script src="audio.js" defer></script>
+<script src="ui.js" defer></script>
+<script src="main.js" defer></script>
 </head>
 <body>
 <div id="game">
@@ -119,7 +126,7 @@
   </div>
 
   <!-- ===== 商店 ===== -->
-  <div class="overlay hidden" id="shop">
+  <div class="overlay hidden" id="shop" role="dialog" aria-modal="true">
     <div class="shop-box">
       <div class="shop-header" data-i18n="shop_title">🛒 商 店</div>
       <div id="shop-items"></div>
@@ -133,7 +140,7 @@
   </div>
 
   <!-- ===== 起始牌组选择 ===== -->
-  <div class="overlay hidden" id="deck-select">
+  <div class="overlay hidden" id="deck-select" role="dialog" aria-modal="true">
     <div class="shop-box">
       <div class="shop-header" data-i18n="deck_select_title">选择起始牌组</div>
       <div id="mode-options"></div>
@@ -145,7 +152,7 @@
   </div>
 
   <!-- ===== 卡包开启 ===== -->
-  <div class="overlay hidden" id="pack-open">
+  <div class="overlay hidden" id="pack-open" role="dialog" aria-modal="true">
     <div class="shop-box">
       <div class="shop-header" id="pack-title"></div>
       <div id="pack-choices"></div>
@@ -156,7 +163,7 @@
   </div>
 
   <!-- ===== 牌型等级 ===== -->
-  <div class="overlay hidden" id="run-info">
+  <div class="overlay hidden" id="run-info" role="dialog" aria-modal="true">
     <div class="shop-box">
       <div class="shop-header" data-i18n="hand_levels_title">牌型等级</div>
       <div id="hand-levels"></div>
@@ -167,7 +174,7 @@
   </div>
 
   <!-- ===== 牌库一览 ===== -->
-  <div class="overlay hidden" id="deck-view">
+  <div class="overlay hidden" id="deck-view" role="dialog" aria-modal="true">
     <div class="shop-box">
       <div class="shop-header" data-i18n="deck_view_title">牌库一览</div>
       <div class="dv-hint" id="deck-view-hint"></div>
@@ -179,7 +186,7 @@
   </div>
 
   <!-- ===== 图鉴 / 战绩 ===== -->
-  <div class="overlay hidden" id="collection">
+  <div class="overlay hidden" id="collection" role="dialog" aria-modal="true">
     <div class="shop-box">
       <div class="shop-header" data-i18n="collection_title">图鉴 · 战绩</div>
       <div class="dv-hint" id="collection-stats"></div>
@@ -201,7 +208,7 @@
   </div>
 
   <!-- ===== 帮助 ===== -->
-  <div class="overlay hidden" id="help">
+  <div class="overlay hidden" id="help" role="dialog" aria-modal="true">
     <div class="shop-box help-box">
       <div class="shop-header" id="help-title"></div>
       <div id="help-body"></div>
@@ -214,7 +221,7 @@
   </div>
 
   <!-- ===== 回合结算 ===== -->
-  <div class="overlay hidden" id="cashout">
+  <div class="overlay hidden" id="cashout" role="dialog" aria-modal="true">
     <div class="shop-box">
       <div class="shop-header gold" data-i18n="round_won_title">回合胜利!</div>
       <div id="cashout-lines"></div>
@@ -225,7 +232,7 @@
   </div>
 
   <!-- ===== 结算画面 ===== -->
-  <div class="overlay hidden" id="end-screen">
+  <div class="overlay hidden" id="end-screen" role="dialog" aria-modal="true">
     <div class="end-box" id="end-box">
       <div class="end-title" id="end-title">游戏结束</div>
       <div class="end-detail" id="end-detail"></div>
@@ -238,11 +245,5 @@
 
   <div id="tooltip" class="hidden"></div>
 </div>
-<script src="i18n.js"></script>
-<script src="defs.js"></script>
-<script src="engine.js"></script>
-<script src="audio.js"></script>
-<script src="ui.js"></script>
-<script src="main.js"></script>
 </body>
 </html>

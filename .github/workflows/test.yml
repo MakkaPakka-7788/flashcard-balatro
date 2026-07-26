@@ -1,0 +1,32 @@
+# push / PR 自动跑三层校验；GitHub Pages 部署前的最后防线
+name: test
+on: [push, pull_request]
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: 回归测试（含机器人整局模拟）
+        run: node test/test.js
+      - name: 平衡基线守护
+        run: node test/balance.js check
+      - name: ESLint 静态检查（跨文件全局符号）
+        run: npx --yes eslint@9 .
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 安装 Playwright
+        run: |
+          pip install playwright
+          playwright install --with-deps chromium
+      - name: 浏览器 E2E
+        run: python3 test/e2e.py

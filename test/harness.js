@@ -179,7 +179,7 @@ function makeBot(api, tier = "standard") {
       : G.shopStock;
     for (const item of stock) {
       if (item.sold) continue;
-      const price = item.kind === "planet" ? 3
+      const price = item.kind === "planet" ? api.BALANCE.planetPrice
         : item.kind === "joker" ? item.def.cost + (item.ed ? api.EDITIONS[item.ed].costUp : 0)
         : item.def.cost;
       if (item.kind === "joker" && G.jokers.length < G.maxJokers && G.money >= price) buyItem(item, price);

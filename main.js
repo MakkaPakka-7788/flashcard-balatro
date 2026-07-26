@@ -188,6 +188,16 @@ $("hand").onclick = e => {
   const card = G.hand.find(c => c.id === el.dataset.cid);
   if (card) toggleSelect(card);
 };
+/* 键盘无障碍：焦点在卡牌上时 Enter/空格 = 切换选中（stopPropagation 避免触发全局 Enter 出牌） */
+$("hand").addEventListener("keydown", e => {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  const el = e.target?.closest?.(".card");
+  if (!el) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const card = G.hand.find(c => c.id === el.dataset.cid);
+  if (card) toggleSelect(card);
+});
 
 /* 3D 倾斜：全局委托 */
 $("game").addEventListener("pointermove", handleTiltMove);
@@ -278,12 +288,8 @@ if (typeof navigator !== "undefined" && "serviceWorker" in navigator &&
       const nw = reg.installing;
       nw?.addEventListener?.("statechange", () => {
         if (nw.state === "installed" && navigator.serviceWorker.controller) {
-          const el = document.createElement("div");
-          el.className = "flash-msg update-toast";
-          el.textContent = S("update_ready");
+          const el = flashMessage(S("update_ready"), "update-toast", 12000);
           el.onclick = () => location.reload();
-          document.body.appendChild(el);
-          setTimeout(() => el.remove(), 12000);
         }
       });
     });

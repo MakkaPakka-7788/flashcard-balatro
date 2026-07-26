@@ -590,6 +590,46 @@ localStorage.setItem("joker_save_v1", JSON.stringify(v4save));
 assert(loadGame() === true, "v4 旧档可加载");
 assert(G.mode === "normal" && G.soldCount === 0 && G.deckId === "red" && G.maxConsumables === 3, "v4 新字段取默认、旧字段恢复");
 localStorage.removeItem("joker_save_v1");
+// v5 档（无商店快照时代）：正常加载并回到盲注选择
+const v5save = { ...v4save, v: 5, mode: "quick", soldCount: 3 };
+localStorage.setItem("joker_save_v1", JSON.stringify(v5save));
+assert(loadGame() === true, "v5 旧档可加载");
+assert(G.mode === "quick" && G.soldCount === 3 && G.state === "blind-select" && G.shopStock.length === 0, "v5 无商店快照 → 回盲注选择");
+localStorage.removeItem("joker_save_v1");
+
+/* ---------- v6: 商店中存档 / 读档（刷新不再错过商店） ---------- */
+newGameState(61);
+G.state = "shop"; G.money = 30;
+rollShop();
+G.shopStock[0].sold = true;
+G.rerollCost = 7;
+saveGame();
+const shopKey = i => (i.def.id || i.def.kind) + ":" + (i.ed || "") + ":" + !!i.sold;
+const shopSnap = G.shopStock.map(shopKey).join(",");
+newGameState(1);
+assert(loadGame() === true && G.state === "shop", "商店存档恢复到商店: " + G.state);
+assert(G.shopStock.map(shopKey).join(",") === shopSnap, "商店货架一致恢复（含已售/版本）");
+assert(G.rerollCost === 7, "刷新价随档恢复");
+localStorage.removeItem("joker_save_v1");
+// 佩尔科：读档回商店不重复触发进店复制
+newGameState(63);
+G.jokers = [{ id: "perkeo", uid: "pk" }];
+G.consumables = [{ id: "hermit", uid: "h1" }];
+openShop();
+assert(G.consumables.length === 2, "佩尔科进店复制一次");
+newGameState(1);
+assert(loadGame() === true && G.state === "shop" && G.consumables.length === 2, "商店读档不重跑佩尔科钩子");
+localStorage.removeItem("joker_save_v1");
+// 猩红之心：回合中读档保留被禁用的小丑
+newGameState(65);
+G.jokers = [{ id: "joker", uid: "cj" }];
+G.boss = BOSSES.find(b => b.id === "crimson");
+startBlind(2);
+assert(G.disabledJokerUid === "cj", "猩红之心开局禁用小丑");
+saveGame();
+newGameState(1);
+assert(loadGame() === true && G.disabledJokerUid === "cj", "回合中读档保留禁用小丑");
+localStorage.removeItem("joker_save_v1");
 
 /* ---------- SW 资源清单与缓存版本校验 ---------- */
 {
@@ -825,6 +865,41 @@ localStorage.removeItem("joker_save_v1");
     try { t.apply(G); pass++; }
     catch (e) { fail++; console.error("FAIL tarot:", t.id, e.message); }
   }
+
+  /* ---------- 死局检测：牌库被销毁到极小后的三种残局 ---------- */
+  enableFastClock();
+  // A) 打光手牌与牌库、分数未达标 → 判负而非软锁
+  newGameState(881);
+  G.masterDeck = G.masterDeck.slice(0, 6);
+  G.boss = BOSSES[0];
+  startBlind(0);
+  let dlGuard = 0;
+  while (G.state === "playing" && G.hand.length && dlGuard++ < 6) {
+    G.selected.clear();
+    G.hand.slice(0, Math.min(3, G.hand.length)).forEach(x => G.selected.add(x.id));
+    await playHand();
+  }
+  await new Promise(r => setTimeout(r, 30));
+  assert(G.state === "over", "死局A: 打光牌后判负: " + G.state);
+  // B) 弃光最后的手牌 → 判负（回归：曾误走 winRound 白拿过关）
+  newGameState(883);
+  G.masterDeck = G.masterDeck.slice(0, 6);
+  G.boss = BOSSES[0];
+  startBlind(0);
+  G.selected.clear();
+  G.hand.forEach(x => G.selected.add(x.id));
+  discard();
+  await new Promise(r => setTimeout(r, 30));
+  assert(G.state === "over", "死局B: 弃光牌判负而非胜利: " + G.state);
+  // C) 通灵者要求 5 张但全场凑不齐 → 开局即结算
+  newGameState(885);
+  G.masterDeck = G.masterDeck.slice(0, 4);
+  G.boss = BOSSES.find(b => b.id === "psychic");
+  startBlind(2);
+  await new Promise(r => setTimeout(r, 30));
+  assert(G.state === "over", "死局C: 通灵者凑不齐5张即结算: " + G.state);
+  localStorage.removeItem("joker_save_v1");
+  localStorage.removeItem("joker_stats_v1");
 
   /* ---------- 种子全局模拟（快进时钟 + 策略机器人，覆盖不同起始牌组） ---------- */
   if (FAST) {

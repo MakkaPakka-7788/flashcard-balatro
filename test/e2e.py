@@ -7,7 +7,7 @@
 覆盖: 开局/出牌计分 → 中途刷新恢复 → 牌库查看 → 帮助 → 商店/卡包 →
       牌组选择 → 键盘操作 → 分享链接 → 英文界面 → 全程无 JS 错误
 """
-import json
+import os
 import pathlib
 import sys
 
@@ -26,7 +26,9 @@ def check(name, ok, detail=""):
 
 
 with sync_playwright() as p:
-    browser = p.chromium.launch()
+    # CI / 沙箱可用 PW_CHROMIUM 指定系统 Chromium，免下载浏览器
+    exe = os.environ.get("PW_CHROMIUM")
+    browser = p.chromium.launch(executable_path=exe) if exe else p.chromium.launch()
     page = browser.new_page()
     page.on("pageerror", lambda e: errors.append("PAGEERROR: " + str(e)))
     page.on("console", lambda m: errors.append("CONSOLE: " + m.text) if m.type == "error" else None)

@@ -6,7 +6,7 @@
 "use strict";
 
 /* 版本号：与 sw.js 的 CACHE("joker-" + 版本) 保持一致，由测试强制校验 */
-const GAME_VERSION = "1.2.0";
+const GAME_VERSION = "1.3.0";
 
 /* ---------- 扑克常量 ---------- */
 const SUITS = ["♠", "♥", "♣", "♦"];
@@ -34,6 +34,8 @@ const HAND_TYPES = {
   pair:           { name: { zh: "对子",     en: "Pair" },            chips: 10,  mult: 2,  up: [15, 1] },
   high_card:      { name: { zh: "高牌",     en: "High Card" },       chips: 5,   mult: 1,  up: [10, 1] },
 };
+/* 同花家族牌型（含隐藏牌型），crafty / droll 等「打出同花时」判定共用 */
+const isFlushType = t => ["flush", "straight_flush", "flush_house", "flush_five"].includes(t);
 
 /* 经 80 局×2 组机器人 A/B 对比调平的曲线（原 [.,.,.,2000,5000,11000,20000,35000,50000]
    在底注 5 有 39% 的死亡尖峰）：相邻倍率平滑递减 3.0→1.6 */
@@ -66,6 +68,14 @@ const BALANCE = {
   bossRushRewardBonus: 1,
   rarityWeights: { common: 12, uncommon: 5, rare: 2, legendary: 1 },
   spectralChance: 0.15,   // 商店塔罗位变幻灵牌的概率
+  planetPrice: 3,         // 商店星球牌统一售价（ui.renderShop 与测试机器人共用）
+  editionRates: { poly: 0.03, holo: 0.07, foil: 0.10 },   // 小丑版本掉率（rollEdition 按累进阈值取）
+  sellRatio: 0.5,         // 小丑卖出价 = cost × 该比例（下取整，至少 $1）
+  tagCash: 3,             // 金钱标签的即时奖励
+  tagJokerFull: 4,        // 小丑标签在槽满时的补偿金
+  investmentPayout: 15,   // 投资标签击败 Boss 后的兑现额
+  immolateMoney: 20,      // 幻灵牌·献祭的奖励金
+  immolateFloor: 20,      // 献祭要求的牌库保底张数
 };
 
 /* ---------- 卡牌增强 ---------- */
@@ -164,7 +174,7 @@ const JOKER_DEFS = [
   { id: "crafty", icon: "🛠", rarity: "common", cost: 4,
     name: { zh: "灵巧小丑", en: "Crafty Joker" },
     desc: { zh: "打出同花时 +80 筹码", en: "+80 Chips if hand contains a Flush" },
-    after: (s) => ["flush", "straight_flush", "flush_house", "flush_five"].includes(s.type) ? { chips: 80 } : null },
+    after: (s) => isFlushType(s.type) ? { chips: 80 } : null },
   { id: "jolly", icon: "😆", rarity: "common", cost: 4,
     name: { zh: "快乐小丑", en: "Jolly Joker" },
     desc: { zh: "打出的牌含对子时 +8 倍率", en: "+8 Mult if hand contains a Pair" },
@@ -176,7 +186,7 @@ const JOKER_DEFS = [
   { id: "droll", icon: "🎭", rarity: "common", cost: 5,
     name: { zh: "古怪小丑", en: "Droll Joker" },
     desc: { zh: "打出同花时 +10 倍率", en: "+10 Mult if hand contains a Flush" },
-    after: (s) => ["flush", "straight_flush", "flush_house", "flush_five"].includes(s.type) ? { mult: 10 } : null },
+    after: (s) => isFlushType(s.type) ? { mult: 10 } : null },
   { id: "crazy", icon: "🌀", rarity: "common", cost: 5,
     name: { zh: "疯狂小丑", en: "Crazy Joker" },
     desc: { zh: "打出顺子时 +12 倍率", en: "+12 Mult if hand contains a Straight" },
@@ -215,7 +225,7 @@ const JOKER_DEFS = [
     desc: { zh: "打出的牌全为黑色花色时 ×3 倍率", en: "×3 Mult if all played cards are black suits" },
     after: (s) => s.cards.every(c => c.suit === "♠" || c.suit === "♣") ? { xmult: 3 } : null },
   /* 300局实验: -0.29,与黑板对称同降 → $8 降 $6 */
-  { id: "baron_red", icon: "👸", rarity: "uncommon", cost: 6,
+  { id: "baron_red", icon: "👸", rarity: "uncommon", cost: 6,   // id 为历史遗留命名（与男爵无关），改 id 会破坏旧存档
     name: { zh: "红心女王", en: "Red Queen" },
     desc: { zh: "打出的牌全为红色花色时 ×3 倍率", en: "×3 Mult if all played cards are red suits" },
     after: (s) => s.cards.every(c => c.suit === "♥" || c.suit === "♦") ? { xmult: 3 } : null },
@@ -408,7 +418,7 @@ const JOKER_DEFS = [
     } },
 ];
 const JOKER_BY_ID = new Map(JOKER_DEFS.map(d => [d.id, d]));
-const sellValue = def => Math.max(1, Math.floor(def.cost / 2));
+const sellValue = def => Math.max(1, Math.floor(def.cost * BALANCE.sellRatio));
 
 /* ---------- 星球牌 ---------- */
 const PLANETS = [
@@ -472,15 +482,27 @@ const TAROTS = [
   { id: "strength", icon: "💪", cost: 5,
     name: { zh: "力量", en: "Strength" },
     desc: { zh: "每回合弃牌次数 +1 (本局)", en: "+1 discard per round (this run)" },
-    apply: g => { g.bonusDiscards++; return S("msg_discard_up", BALANCE.baseDiscards + g.bonusDiscards); } },
+    apply: g => {
+      g.bonusDiscards++;
+      if (g.state === "playing") { g.maxDiscards++; g.discardsLeft++; }   // 回合中使用立即生效
+      return S("msg_discard_up", BALANCE.baseDiscards + g.bonusDiscards);
+    } },
   { id: "judgement", icon: "📯", cost: 8,
     name: { zh: "审判", en: "Judgement" },
     desc: { zh: "每回合出牌次数 +1 (本局)", en: "+1 hand per round (this run)" },
-    apply: g => { g.bonusHands++; return S("msg_hands_up", BALANCE.baseHands + g.bonusHands); } },
+    apply: g => {
+      g.bonusHands++;
+      if (g.state === "playing") { g.maxHands++; g.handsLeft++; }   // 回合中使用立即生效
+      return S("msg_hands_up", BALANCE.baseHands + g.bonusHands);
+    } },
   { id: "tower", icon: "🗼", cost: 8,
     name: { zh: "高塔", en: "The Tower" },
     desc: { zh: "手牌上限 +1 (本局)", en: "+1 hand size (this run)" },
-    apply: g => { g.handSize++; return S("msg_handsize_up", g.handSize); } },
+    apply: g => {
+      g.handSize++;
+      if (g.state === "playing") { g.curHandSize++; drawToFull(); }   // 回合中使用立即补一张
+      return S("msg_handsize_up", g.handSize);
+    } },
   suitTarot("sun",   "太阳", "The Sun",   "☀️", "♥"),
   suitTarot("star",  "星星", "The Star",  "⭐", "♦"),
   suitTarot("moon",  "月亮", "The Moon",  "🌙", "♣"),
@@ -560,17 +582,17 @@ const SPECTRALS = [
     } },
   { id: "immolate", icon: "🔥", cost: 5, spectral: true,
     name: { zh: "献祭", en: "Immolate" },
-    desc: { zh: "随机销毁牌库 5 张牌，获得 $20", en: "Destroy 5 random cards in your deck, gain $20" },
+    desc: { zh: `随机销毁牌库 5 张牌，获得 $${BALANCE.immolateMoney}`, en: `Destroy 5 random cards in your deck, gain $${BALANCE.immolateMoney}` },
     apply: g => {
-      if (g.masterDeck.length <= 20) return null;   // 保底牌库
+      if (g.masterDeck.length <= BALANCE.immolateFloor) return null;   // 保底牌库
       for (let k = 0; k < 5 && g.masterDeck.length; k++) {
         const idx = Math.floor(rng() * g.masterDeck.length);
         const [gone] = g.masterDeck.splice(idx, 1);
         g.deck = g.deck.filter(x => x.id !== gone.id);
         g.hand = g.hand.filter(x => x.id !== gone.id);
       }
-      g.money += 20;
-      return "+$20";
+      g.money += BALANCE.immolateMoney;
+      return "+$" + BALANCE.immolateMoney;
     } },
 ];
 const SPECTRAL_BY_ID = new Map(SPECTRALS.map(s => [s.id, s]));
@@ -670,7 +692,7 @@ const DECKS = [
 const SKIP_TAGS = [
   { id: "cash", icon: "💰",
     name: { zh: "金钱标签", en: "Cash Tag" },
-    apply: g => { g.money += 3; return "+$3"; } },
+    apply: g => { g.money += BALANCE.tagCash; return "+$" + BALANCE.tagCash; } },
   { id: "coupon", icon: "🎟",
     name: { zh: "优惠券标签", en: "Coupon Tag" },
     apply: g => { g.freeReroll++; return S("msg_free_reroll"); } },
@@ -684,7 +706,7 @@ const SKIP_TAGS = [
   { id: "joker_tag", icon: "🎁",
     name: { zh: "小丑标签", en: "Joker Tag" },
     apply: g => {
-      if (g.jokers.length >= g.maxJokers) { g.money += 4; return "+$4"; }
+      if (g.jokers.length >= g.maxJokers) { g.money += BALANCE.tagJokerFull; return "+$" + BALANCE.tagJokerFull; }
       const pool = JOKER_DEFS.filter(d => d.rarity === "common" && !g.jokers.some(j => j.id === d.id));
       const def = rnd(pool);
       g.jokers.push({ id: def.id, uid: "j" + Date.now() + Math.random().toString(36).slice(2, 5) });

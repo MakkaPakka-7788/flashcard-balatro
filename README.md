@@ -6,13 +6,13 @@ Balatro 风格的纯前端网页卡牌游戏，无任何依赖，打开 `index.h
 
 ![对局截图 / Gameplay](screenshot.png)
 
-> **English**: A Balatro-style roguelike deckbuilder in pure vanilla JS — zero dependencies, zero build step, just open `index.html`. Full English UI (toggle in the sidebar). Features: 12 poker hands incl. hidden ones, 54 Jokers across 6 mechanic classes (retriggers, scaling, held-in-hand, rule-benders, Blueprint copying, card growth) incl. 5 Legendaries, editions, tarot/spectral consumables that permanently sculpt your deck, booster packs, vouchers, 14 boss blinds, 5 starting decks, endless mode, daily runs, seeded share links (`?seed=…&deck=…`), achievements, collection & run history, offline PWA. Dev: `node test/test.js` (245 assertions incl. bot-driven full-run sims), `node test/balance.js` (win-rate / death-ante reports), `python3 test/e2e.py` (browser E2E).
+> **English**: A Balatro-style roguelike deckbuilder in pure vanilla JS — zero dependencies, zero build step, just open `index.html`. Full English UI (toggle in the sidebar). Features: 12 poker hands incl. hidden ones, 54 Jokers across 6 mechanic classes (retriggers, scaling, held-in-hand, rule-benders, Blueprint copying, card growth) incl. 5 Legendaries, editions, tarot/spectral consumables that permanently sculpt your deck, booster packs, vouchers, 14 boss blinds, 5 starting decks, endless mode, daily runs, seeded share links (`?seed=…&deck=…`), achievements, collection & run history, offline PWA. Dev: `node test/test.js` (360+ assertions incl. bot-driven full-run sims), `node test/balance.js` (win-rate / death-ante reports), `python3 test/e2e.py` (browser E2E).
 
 ## 玩法
 
 - 开局选择模式与起始牌组（经典 / 红:+1弃牌 / 蓝:+1出牌 / 黄:开局$10 / 幽灵:带塔罗），从 8 张手牌中选至多 5 张出牌，按扑克牌型计分（筹码 × 倍率）
 - 三种模式：**标准**（8 底注）、**⚡快速**（4 底注抽稀曲线，约 10 分钟一局）、**👹Boss Rush**（每个盲注都带随机 Boss 减益，开打才揭晓）；分享链接与深链支持 `&mode=`
-- 侧边栏「今日挑战」「每周挑战」按日期/ISO 周号生成全球统一种子，配合分享链接与好友同局比进度
+- 侧边栏「今日挑战」「每周挑战」按 UTC 日期/ISO 周号生成全球统一种子，配合分享链接与好友同局比进度
 - 12 种牌型：标准 10 种之上还有隐藏牌型**五条**（120×12）和**同花葫芦**（140×14）——只有用塔罗改造牌库才可能打出；12 张星球牌一一对应
 - 每个底注需依次击败小盲注 / 大盲注 / Boss 盲注（14 种 Boss 减益：禁花色/人头、基础值减半、限制补牌、随机禁用小丑等，同局不重复）；共 8 个底注，通关后可进入无尽模式
 - 跳过小盲/大盲换随机标签（7 种：金钱/免费刷新/牌型升级/白嫖小丑/优惠券折扣/投资/加倍）；商店塔罗位偶尔出现高风险的幻灵牌（销毁换钱、随机增强、复制牌、直接获得传奇小丑）
@@ -46,7 +46,7 @@ Balatro 风格的纯前端网页卡牌游戏，无任何依赖，打开 `index.h
 
 ## 种子与每日挑战
 
-牌局随机使用可播种 RNG（mulberry32），同一种子可复现整局。侧边栏「今日挑战」按当天日期生成固定种子；点击「种子」一行可输入自定义种子开局。
+牌局随机使用可播种 RNG（mulberry32），同一种子可复现整局。侧边栏「今日挑战」按当天 UTC 日期生成固定种子（全球同一天同一局）；点击「种子」一行可输入自定义种子开局。
 
 ## 结构
 
@@ -78,5 +78,7 @@ node test/balance.js compare --ante-b=100,300,... # 同种子配对 A/B 对比�
 node test/balance.js jokers --runs=40             # 单卡受控实验：逐小丑测边际底注增益
 node test/balance.js check                        # 基线守护：越出容差带即报错（--update 重定基线）
 ```
+
+仓库配有 GitHub Actions（`.github/workflows/test.yml`）：push / PR 自动跑全量回归、平衡基线守护与 ESLint 静态检查（`eslint.config.mjs` 按六个源文件的顶层声明自动生成全局白名单，本地 `npx eslint .` 可跑）。
 
 所有可调数值集中在 `defs.js` 的 `BALANCE` 对象。`test/test.js` 会校验 sw.js 资源清单，并在静态资源相对 HEAD 有改动而 `CACHE` 版本未升级时报错；`test/balance-baseline.json` 记录平衡容差带，内容改动破坏曲线时 `check` 模式会拦截。

@@ -45,14 +45,16 @@ with sync_playwright() as p:
     cards.nth(0).click()
     cards.nth(1).click()
     page.click("#play-btn")
-    page.wait_for_timeout(6500)
+    # 状态等待代替固定 sleep：计分动画结束（scoring 复位）即可断言
+    page.wait_for_function("() => !G.scoring && G.roundScore > 0", timeout=15000)
     score = page.evaluate("() => G.roundScore")
     check("出牌得分", score > 0, f"score={score}")
 
     # --- 中途刷新恢复 ---
     snap = page.evaluate("() => ({ hand: G.hand.map(c=>c.rank+c.suit).join(','), score: G.roundScore })")
     page.reload()
-    page.wait_for_timeout(700)
+    # 注意：顶层 const G 不挂 window，须用 typeof 探测
+    page.wait_for_function("() => typeof G !== 'undefined' && G.state === 'playing' && !G.scoring", timeout=10000)
     after = page.evaluate("() => ({ hand: G.hand.map(c=>c.rank+c.suit).join(','), score: G.roundScore, state: G.state })")
     check("刷新后恢复回合", after["state"] == "playing" and after["hand"] == snap["hand"] and after["score"] == snap["score"])
 
@@ -106,6 +108,8 @@ with sync_playwright() as p:
     page.goto(URL + "?daily=1")
     page.wait_for_timeout(600)
     check("daily深链直达今日挑战", page.evaluate("() => G.seed === todaySeed()"))
+    # 深链消费后清 URL：换局后刷新不再重开深链局/覆盖搁置位（v1.4.1 回归）
+    check("深链消费后清空查询串", page.evaluate("() => location.search") == "")
 
     # --- v6+: 商店中刷新恢复同一货架 ---
     snap = page.evaluate("""() => {
@@ -114,9 +118,18 @@ with sync_playwright() as p:
       return G.shopStock.map(i => (i.def.id || i.def.kind) + ':' + !!i.sold).join(',');
     }""")
     page.reload()
-    page.wait_for_timeout(700)
+    page.wait_for_function("() => typeof G !== 'undefined' && G.state === 'shop'", timeout=10000)
     r = page.evaluate("() => ({ state: G.state, stock: G.shopStock.map(i => (i.def.id || i.def.kind) + ':' + !!i.sold).join(','), cost: G.rerollCost })")
     check("商店刷新恢复同一货架", r["state"] == "shop" and r["stock"] == snap and r["cost"] == 9, str(r))
+
+    # --- 信息弹层打开时快捷键不穿透（v1.4.1 回归） ---
+    # 无守卫时 R 会花 $9 刷新背后的商店、Enter 会推进回合
+    page.evaluate("() => { G.money = 33; render(); renderShop(); showHelp(0); }")
+    page.keyboard.press("r")
+    page.wait_for_timeout(200)
+    r = page.evaluate("() => ({ money: G.money, state: G.state })")
+    check("弹层打开时R键不穿透商店刷新", r["money"] == 33 and r["state"] == "shop", str(r))
+    page.keyboard.press("Escape")
 
     # --- 死局：弃光极小牌库 → 判负而非胜利 ---
     page.evaluate("""() => {
@@ -128,7 +141,7 @@ with sync_playwright() as p:
       G.selected = new Set(G.hand.map(c => c.id));
       discard();
     }""")
-    page.wait_for_timeout(1600)
+    page.wait_for_function("() => G.state === 'over'", timeout=10000)
     check("死局判负弹结算", page.evaluate("() => G.state") == "over" and page.is_visible("#end-screen"))
 
     # --- flash 消息堆叠 + aria-live ---

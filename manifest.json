@@ -15,7 +15,8 @@
       "icons": [{ "src": "apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }] }
   ],
   "screenshots": [
-    { "src": "screenshot.png", "sizes": "1280x800", "type": "image/png", "form_factor": "wide" }
+    { "src": "screenshot.png", "sizes": "1280x800", "type": "image/png", "form_factor": "wide" },
+    { "src": "screenshot-mobile.png", "sizes": "390x844", "type": "image/png", "form_factor": "narrow" }
   ],
   "icons": [
     { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },

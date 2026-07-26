@@ -104,6 +104,7 @@ const STR = {
   use_again:         { zh: "再点一次使用", en: "Click again to use" },
   use_again_target:  { zh: "再点一次对选中手牌使用", en: "Click again to use on selected cards" },
   only_in_round:     { zh: "🔒 只能在回合中对手牌使用", en: "🔒 Can only be used on cards during a round" },
+  cannot_use:        { zh: "🔒 当前无法使用", en: "🔒 Can't use right now" },
   need_select:       { zh: "请先选中 {0} 张手牌", en: "Select {0} card(s) in hand first" },
   msg_suit_change:   { zh: "{0} 张牌变为 {1}", en: "{0} card(s) converted to {1}" },
   msg_rank_up:       { zh: "{0} 张牌点数 +1", en: "{0} card(s) rank +1" },
@@ -136,7 +137,7 @@ const STR = {
 
   /* 标签 */
   msg_tag_voucher:   { zh: "下张优惠券半价", en: "Next voucher is half price" },
-  msg_tag_investment:{ zh: "击败下个Boss +$15", en: "+$15 after beating the next Boss" },
+  msg_tag_investment:{ zh: "击败下个Boss +${0}", en: "+${0} after beating the next Boss" },
   msg_tag_double:    { zh: "下一个标签效果 ×2", en: "Next tag triggers twice" },
   investment_line:   { zh: "投资标签兑现", en: "Investment payout" },
 

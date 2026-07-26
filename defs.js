@@ -6,7 +6,7 @@
 "use strict";
 
 /* 版本号：与 sw.js 的 CACHE("joker-" + 版本) 保持一致，由测试强制校验 */
-const GAME_VERSION = "1.4.0";
+const GAME_VERSION = "1.4.1";
 
 /* ---------- 扑克常量 ---------- */
 const SUITS = ["♠", "♥", "♣", "♦"];
@@ -52,6 +52,9 @@ const BALANCE = {
   handSize: 8,
   interestRate: 5,        // 每 $N 得 $1 利息
   interestCap: 5,
+  compoundInterestCap: 10, // 复利优惠券后的利息上限（apply 与双语 desc 均由此插值）
+  maxJokers: 5,           // 小丑槽位（伙伴合约优惠券 +1）
+  maxConsumables: 2,      // 消耗品槽位（手提箱优惠券 +1）
   blindRewards: [3, 4, 5],
   rerollBase: 3,
   rerollClearance: 1,     // 清仓甩卖优惠券后的刷新起价
@@ -150,19 +153,20 @@ const BLIND_META = [
  * @property {number} cost
  * @property {{zh: string, en: string}} name
  * @property {{zh: string, en: string}} desc
- * @property {Function} [after]        牌型算完后 (ctx, g, j)
- * @property {Function} [perCard]      逐卡计分 (card, ctx, g, j)
- * @property {Function} [heldCard]     手中持有 (card, g, j)
- * @property {Function} [retrigger]    额外触发次数 (card, ctx, g, j)
- * @property {Function} [money]        回合结算得钱 (g, j)
- * @property {Function} [onPlay]       每手结算后 (ctx, g, j)，可返回 "destroy"
- * @property {Function} [onDiscard]    弃牌时 (cards, g, j)
- * @property {Function} [onReroll]     商店刷新时 (g, j)
- * @property {Function} [onShopEnter]  进店时 (g, j)
- * @property {Function} [roundEnd]     回合结束 (g, j)，可返回 "destroy"
- * @property {Function} [stateText]    成长值展示 (j)
+ * @property {(ctx: any, g: any, j: any) => (JokerEffect | null | void)} [after]        牌型算完后
+ * @property {(card: any, ctx: any, g: any, j: any) => (JokerEffect | null)} [perCard]  逐卡计分
+ * @property {(card: any, g: any, j: any) => (JokerEffect | null)} [heldCard]           手中持有
+ * @property {(card: any, ctx: any, g: any, j: any) => number} [retrigger]              额外触发次数
+ * @property {(g: any, j: any) => number} [money]                                       回合结算得钱
+ * @property {(ctx: any, g: any, j: any) => ("destroy" | void)} [onPlay]                每手结算后，可返回 "destroy"
+ * @property {(cards: any[], g: any, j: any) => void} [onDiscard]                       弃牌时
+ * @property {(g: any, j: any) => void} [onReroll]                                      商店刷新时
+ * @property {(g: any, j: any) => (string | null | void)} [onShopEnter]                 进店时，返回本地化消息则提示
+ * @property {(g: any, j: any) => ("destroy" | void)} [roundEnd]                        回合结束，可返回 "destroy"
+ * @property {(j: any) => string} [stateText]                                           成长值展示
  * @property {"right"} [copy]          蓝图复制方向
  */
+/** @typedef {{chips?: number, mult?: number, xmult?: number}} JokerEffect 计分回调的返回形状 */
 /* trigger: perCard(逐卡计分时) / after(牌型算完后) / money(结算时) */
 /** @type {JokerDef[]} */
 const JOKER_DEFS = [
@@ -442,6 +446,8 @@ const JOKER_DEFS = [
 ];
 const JOKER_BY_ID = new Map(JOKER_DEFS.map(d => [d.id, d]));
 const sellValue = def => Math.max(1, Math.floor(def.cost * BALANCE.sellRatio));
+/* 未持有的传奇小丑候选池（灵魂幻灵牌 canUse/apply 共用） */
+const legendaryPool = g => JOKER_DEFS.filter(d => d.rarity === "legendary" && !g.jokers.some(j => j.id === d.id));
 
 /* ---------- 星球牌 ---------- */
 const PLANETS = [
@@ -491,9 +497,9 @@ const enhTarot = (id, zhName, enName, icon, enh) => ({
  * @property {{zh: string, en: string}} desc
  * @property {boolean} [spectral]
  * @property {[number, number]} [targets]
- * @property {Function} [apply]
- * @property {Function} [applyCards]
- * @property {Function} [canUse]
+ * @property {(g: any) => (string | null)} [apply]           即时效果；返回 null = 当前无法使用（不消耗）
+ * @property {(cards: any[], g: any) => string} [applyCards] 对选中手牌生效
+ * @property {(g: any) => {ok: boolean, reason?: {zh: string, en: string}}} [canUse]
  */
 /** @type {ConsumableDef[]} */
 const TAROTS = [
@@ -608,12 +614,12 @@ const SPECTRALS = [
     desc: { zh: "获得一张随机传奇小丑牌", en: "Gain a random Legendary Joker" },
     canUse: g => {
       if (g.jokers.length >= g.maxJokers) return { ok: false, reason: { zh: "小丑牌槽位已满", en: "Joker slots full" } };
-      const pool = JOKER_DEFS.filter(d => d.rarity === "legendary" && !g.jokers.some(j => j.id === d.id));
-      if (!pool.length) return { ok: false, reason: { zh: "无可用传奇小丑", en: "No legendary Jokers available" } };
+      if (!legendaryPool(g).length) return { ok: false, reason: { zh: "无可用传奇小丑", en: "No legendary Jokers available" } };
       return { ok: true };
     },
     apply: g => {
-      const pool = JOKER_DEFS.filter(d => d.rarity === "legendary" && !g.jokers.some(j => j.id === d.id));
+      const pool = legendaryPool(g);
+      if (!pool.length) return null;   // canUse 之外的直调兜底（不消耗）
       const def = rnd(pool);
       g.jokers.push({ id: def.id, uid: "j" + Date.now() + Math.random().toString(36).slice(2, 5) });
       return `${def.icon} ${L(def.name)}`;
@@ -655,11 +661,11 @@ const VOUCHERS = [
   { id: "overstock", icon: "📦", cost: 10,
     name: { zh: "超额库存", en: "Overstock" },
     desc: { zh: "商店每次多 1 张小丑牌", en: "Shop offers +1 Joker" },
-    apply: g => {} },
+    apply: g => {} },   // 效果在 engine.rollShop：jokerCount 按持券判定
   { id: "clearance", icon: "🏷", cost: 8,
     name: { zh: "清仓甩卖", en: "Clearance Sale" },
-    desc: { zh: "商店刷新费从 $1 起", en: "Shop rerolls start at $1" },
-    apply: g => {} },
+    desc: { zh: `商店刷新费从 $${BALANCE.rerollClearance} 起`, en: `Shop rerolls start at $${BALANCE.rerollClearance}` },
+    apply: g => {} },   // 效果在 ui.openShop：rerollCost 按持券取 BALANCE.rerollClearance
   { id: "crate", icon: "🧰", cost: 8,
     name: { zh: "手提箱", en: "Crate" },
     desc: { zh: "消耗品槽 +1", en: "+1 consumable slot" },
@@ -670,8 +676,9 @@ const VOUCHERS = [
     apply: g => { g.maxJokers++; } },
   { id: "compound", icon: "🏦", cost: 10,
     name: { zh: "复利", en: "Compound Interest" },
-    desc: { zh: "利息上限 $5 → $10", en: "Interest cap raised from $5 to $10" },
-    apply: g => { g.interestCap = 10; } },
+    desc: { zh: `利息上限 $${BALANCE.interestCap} → $${BALANCE.compoundInterestCap}`,
+            en: `Interest cap raised from $${BALANCE.interestCap} to $${BALANCE.compoundInterestCap}` },
+    apply: g => { g.interestCap = BALANCE.compoundInterestCap; } },
   { id: "grabber", icon: "🫳", cost: 10,
     name: { zh: "抓手", en: "Grabber" },
     desc: { zh: "每回合出牌次数 +1", en: "+1 hand per round" },
@@ -755,7 +762,7 @@ const SKIP_TAGS = [
     apply: g => { g.voucherDiscount = true; return S("msg_tag_voucher"); } },
   { id: "investment_tag", icon: "📈",
     name: { zh: "投资标签", en: "Investment Tag" },
-    apply: g => { g.investment = (g.investment || 0) + 1; return S("msg_tag_investment"); } },
+    apply: g => { g.investment = (g.investment || 0) + 1; return S("msg_tag_investment", BALANCE.investmentPayout); } },
   { id: "double_tag", icon: "♊",
     name: { zh: "加倍标签", en: "Double Tag" },
     apply: g => { g.doubleTag = (g.doubleTag || 0) + 1; return S("msg_tag_double"); } },
@@ -809,26 +816,26 @@ const HELP_PAGES = [
   { title: { zh: "基础流程", en: "The Basics" },
     body: {
       zh: `<b>目标</b>：每回合在限定出牌次数内，让回合分数达到目标分数。<br><br>
-<b>计分公式</b>：<span class="hb">筹码 × 倍率</span>。牌型决定基础值（对子 10×2、同花 35×4…），打出的每张计分牌加筹码，小丑牌再叠加成。<br><br>
+<b>计分公式</b>：<span class="hb">筹码 × 倍率</span>。牌型决定基础值（对子 ${HAND_TYPES.pair.chips}×${HAND_TYPES.pair.mult}、同花 ${HAND_TYPES.flush.chips}×${HAND_TYPES.flush.mult}…），打出的每张计分牌加筹码，小丑牌再叠加成。<br><br>
 <b>回合结构</b>：每个底注依次是 小盲注 → 大盲注 → Boss盲注（带减益）。小/大盲注可跳过换随机标签奖励。通关后可进无尽模式。<br><br>
-<b>三种模式</b>（开局与牌组一起选）：🎴 标准 8 底注 · ⚡ 快速 4 底注（约10分钟，目标更缓）· 👹 Boss Rush 每个盲注都带随机 Boss 减益（奖励 +$1 补偿）。<br><br>
+<b>三种模式</b>（开局与牌组一起选）：🎴 标准 8 底注 · ⚡ 快速 4 底注（约10分钟，目标更缓）· 👹 Boss Rush 每个盲注都带随机 Boss 减益（奖励 +$${BALANCE.bossRushRewardBonus} 补偿）。<br><br>
 <b>挑战</b>：「今日/每周挑战」按日期生成全球统一种子，配合结束画面的分享链接和好友同局比进度。<br><br>
 <b>操作</b>：点牌或按 1-9 选牌（≤5张），Enter 出牌，X 弃牌换新（次数有限）。`,
       en: `<b>Goal</b>: reach the target score each round within a limited number of hands.<br><br>
-<b>Scoring</b>: <span class="hb">Chips × Mult</span>. The poker hand sets the base (Pair 10×2, Flush 35×4…), each scored card adds chips, then Jokers stack on top.<br><br>
+<b>Scoring</b>: <span class="hb">Chips × Mult</span>. The poker hand sets the base (Pair ${HAND_TYPES.pair.chips}×${HAND_TYPES.pair.mult}, Flush ${HAND_TYPES.flush.chips}×${HAND_TYPES.flush.mult}…), each scored card adds chips, then Jokers stack on top.<br><br>
 <b>Structure</b>: each Ante is Small Blind → Big Blind → Boss Blind (with a debuff). Skip Small/Big for a random Tag reward. Win to unlock Endless.<br><br>
-<b>Three modes</b> (picked with your deck): 🎴 Standard 8 antes · ⚡ Quick 4 antes (~10 min, gentler targets) · 👹 Boss Rush — every blind has a random Boss debuff (+$1 reward each).<br><br>
+<b>Three modes</b> (picked with your deck): 🎴 Standard 8 antes · ⚡ Quick 4 antes (~10 min, gentler targets) · 👹 Boss Rush — every blind has a random Boss debuff (+$${BALANCE.bossRushRewardBonus} reward each).<br><br>
 <b>Challenges</b>: Daily and Weekly runs use globally shared seeds — race friends on the same run via share links.<br><br>
 <b>Controls</b>: click or press 1-9 to select up to 5 cards, Enter to play, X to discard.` } },
   { title: { zh: "商店", en: "The Shop" },
     body: {
-      zh: `每次胜利后进商店，金钱来自奖励 + 剩余出牌数 + 利息（每 $5 得 $1）。<br><br>
-<b>🃏 小丑牌</b>：核心构筑，被动加成，最多 5 张。结算按从左到右顺序——把 ×倍率 放右边收益更大（悬停用 ◀▶ 调整）。可能带版本：闪箔+50筹码 / 全息+10倍率 / 多彩×1.5倍率。双击卖出。<br><br>
+      zh: `每次胜利后进商店，金钱来自奖励 + 剩余出牌数 + 利息（每 $${BALANCE.interestRate} 得 $1）。<br><br>
+<b>🃏 小丑牌</b>：核心构筑，被动加成，最多 ${BALANCE.maxJokers} 张。结算按从左到右顺序——把 ×倍率 放右边收益更大（悬停用 ◀▶ 调整）。可能带版本：闪箔+${EDITIONS.foil.effect.chips}筹码 / 全息+${EDITIONS.holo.effect.mult}倍率 / 多彩×${EDITIONS.poly.effect.xmult}倍率。双击卖出。<br><br>
 <b>🪐 星球牌</b>：永久升级一种牌型的基础值。<br>
 <b>🔮 塔罗牌</b>：买入消耗品槽，双击使用。<br>
 <b>📦 卡包</b>：3 选 1。<b>🏷 优惠券</b>：每种每局一次的永久升级。`,
-      en: `After each win you visit the shop. Money comes from rewards + unused hands + interest ($1 per $5).<br><br>
-<b>🃏 Jokers</b>: your build, up to 5. They trigger left to right — put ×Mult jokers on the right (hover for ◀▶). May carry editions: Foil +50 Chips / Holo +10 Mult / Polychrome ×1.5 Mult. Double-click to sell.<br><br>
+      en: `After each win you visit the shop. Money comes from rewards + unused hands + interest ($1 per $${BALANCE.interestRate}).<br><br>
+<b>🃏 Jokers</b>: your build, up to ${BALANCE.maxJokers}. They trigger left to right — put ×Mult jokers on the right (hover for ◀▶). May carry editions: Foil +${EDITIONS.foil.effect.chips} Chips / Holo +${EDITIONS.holo.effect.mult} Mult / Polychrome ×${EDITIONS.poly.effect.xmult} Mult. Double-click to sell.<br><br>
 <b>🪐 Planets</b>: permanently upgrade one hand type.<br>
 <b>🔮 Tarots</b>: stored as consumables, double-click to use.<br>
 <b>📦 Packs</b>: pick 1 of 3. <b>🏷 Vouchers</b>: one-time permanent upgrades.` } },
@@ -836,13 +843,13 @@ const HELP_PAGES = [
     body: {
       zh: `牌库整局持久——塔罗对牌的修改会保留到之后每个回合（点右下角「牌库」随时查看）。<br><br>
 <b>目标型塔罗</b>需要在回合中先选中手牌再双击使用：太阳/星星/月亮/世界改花色，皇帝点数+1，恋人/战车/正义/恶魔附加增强，吊人销毁牌。<br><br>
-<b>增强</b>：🔷加成+30筹码 · 🔺倍率+4 · 🛡钢铁留手中×1.5 · 💰黄金回合结束+$3。<br><br>
-<b>隐藏牌型</b>：把点数/花色改齐后可打出 <b>五条</b>（120×12）和 <b>同花葫芦</b>（140×14）——改牌流的终极目标。<br><br>
+<b>增强</b>：🔷加成+${ENH_CHIPS}筹码 · 🔺倍率+${ENH_MULT} · 🛡钢铁留手中×${ENH_STEEL_X} · 💰黄金回合结束+$${ENH_GOLD_MONEY}。<br><br>
+<b>隐藏牌型</b>：把点数/花色改齐后可打出 <b>五条</b>（${HAND_TYPES.five_kind.chips}×${HAND_TYPES.five_kind.mult}）和 <b>同花葫芦</b>（${HAND_TYPES.flush_house.chips}×${HAND_TYPES.flush_house.mult}）——改牌流的终极目标。<br><br>
 <b>🫧 幻灵牌</b>：商店塔罗位偶尔出现的高风险消耗品（销毁换钱、随机增强、复制牌、直接获得传奇小丑）。`,
       en: `Your deck persists for the whole run — tarot modifications stay for every later round (click "Deck" bottom-right to inspect).<br><br>
 <b>Targeted tarots</b> are used mid-round on selected cards: Sun/Star/Moon/World change suits, Emperor raises rank, Lovers/Chariot/Justice/Devil add enhancements, Hanged Man destroys.<br><br>
-<b>Enhancements</b>: 🔷 +30 Chips · 🔺 +4 Mult · 🛡 Steel ×1.5 while held · 💰 Gold +$3 at round end.<br><br>
-<b>Hidden hands</b>: sculpt ranks/suits to unlock <b>Five of a Kind</b> (120×12) and <b>Flush House</b> (140×14).<br><br>
+<b>Enhancements</b>: 🔷 +${ENH_CHIPS} Chips · 🔺 +${ENH_MULT} Mult · 🛡 Steel ×${ENH_STEEL_X} while held · 💰 Gold +$${ENH_GOLD_MONEY} at round end.<br><br>
+<b>Hidden hands</b>: sculpt ranks/suits to unlock <b>Five of a Kind</b> (${HAND_TYPES.five_kind.chips}×${HAND_TYPES.five_kind.mult}) and <b>Flush House</b> (${HAND_TYPES.flush_house.chips}×${HAND_TYPES.flush_house.mult}).<br><br>
 <b>🫧 Spectrals</b>: risky consumables that occasionally replace the shop tarot (destroy for cash, random enhancement, copy cards, gain a Legendary Joker).` } },
   { title: { zh: "进阶机制", en: "Advanced" },
     body: {

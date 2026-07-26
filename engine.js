@@ -45,13 +45,13 @@ function hashStr(s) {
   for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
   return h;
 }
-/* 今日/每周挑战统一按 UTC 日期取种子：全球同一时刻同一局（v1.3.0 起今日挑战由本地日期改为 UTC） */
-const todaySeed = () => hashStr("joker-" + new Date().toISOString().slice(0, 10));
+/* 今日/每周挑战统一按 UTC 日期取种子：全球同一时刻同一局（v1.3.0 起今日挑战由本地日期改为 UTC）
+   只允许 getUTC* 取值器——本地时区分量会让周界/日界前后不同时区玩家拿到不同种子（有测试强制） */
+const todaySeed = (now = new Date()) => hashStr("joker-" + now.toISOString().slice(0, 10));
 
-/* 每周挑战：ISO 周数哈希（全球同一周同一局） */
-function weekSeed() {
-  const d = new Date();
-  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+/* 每周挑战：ISO 周数哈希（全球同一周同一局，周界按 UTC 周一零点翻转） */
+function weekSeed(now = new Date()) {
+  const t = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7));   // 该周的周四决定 ISO 年
   const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
   const week = Math.ceil(((t.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
@@ -100,8 +100,9 @@ function recordGameEnd(win) {
     seed: G.seed, ante: G.ante, win: !!win,
     endless: !!G.endless, deck: G.deckId || "classic", mode: G.mode || "normal",
   }, ...(s.history || [])].slice(0, 10);
-  if (G.seed === todaySeed()) s.didDaily = true;
-  if (G.seed === weekSeed()) s.didWeekly = true;
+  // v8: 开局时定格的标志（跨 UTC 午夜结束的挑战局不再漏记）
+  if (G.isDaily) s.didDaily = true;
+  if (G.isWeekly) s.didWeekly = true;
   saveStats(s);
   // 成就颁发放在 saveStats 之后（awardAchievement 内部自行读写 stats，避免快照互相覆盖）
   if (win && G.mode !== "quick") {
@@ -157,17 +158,21 @@ function restoreParkedSave() {
 }
 
 function saveGame() {
-  if (G.state === "over") { localStorage.removeItem(SAVE_KEY); return; }
+  if (G.state === "over") {
+    try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* 隐私模式等场景静默失败 */ }
+    return;
+  }
   // 持有类成就的集中检查点（saveGame 在每次状态变化后都会调用）
   if (G.money >= 50) awardAchievement("rich");
   if (G.jokers?.some(j => JOKER_BY_ID.get(j.id)?.rarity === "legendary")) awardAchievement("legendary");
   try {
     const data = {
-      v: 7, ver: GAME_VERSION,
+      v: 8, ver: GAME_VERSION,
       money: G.money, ante: G.ante, round: G.round,
       blindIndex: G.blindIndex, bossId: G.boss?.id,
       jokers: G.jokers.map(j => ({ id: j.id, uid: j.uid, state: j.state, ed: j.ed })),
       deckId: G.deckId, mode: G.mode,
+      isDaily: G.isDaily, isWeekly: G.isWeekly,   // v8: 挑战身份开局定格，跨 UTC 午夜不漂移
       consumables: G.consumables.map(c => ({ id: c.id, uid: c.uid })),
       handLevels: G.handLevels, handPlayCounts: G.handPlayCounts,
       seed: G.seed, rngState: _rngState,
@@ -208,6 +213,19 @@ function saveGame() {
   } catch (e) { /* 隐私模式等场景静默失败 */ }
 }
 
+/* 导入码/坏档防御：只接受形状合法的牌，且按白名单重建字段——
+   rank/suit/enh/perm 会进 innerHTML 与计分，敌意"存档码"里的注入字段在此全部丢弃 */
+function sanitizeCards(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter(c => c && SUITS.includes(c.suit) && RANK_VAL[c.rank] != null && typeof c.id === "string")
+    .map(c => ({
+      suit: c.suit, rank: c.rank, id: c.id,
+      ...(ENH[c.enh] ? { enh: c.enh } : {}),
+      ...(typeof c.perm === "number" && Number.isFinite(c.perm) ? { perm: c.perm } : {}),
+    }));
+}
+
 function loadGame() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
@@ -224,12 +242,9 @@ function loadGame() {
     G.consumables = (d.consumables || []).filter(c => consumableDef(c.id));
     Object.assign(G.handLevels, d.handLevels);
     G.handPlayCounts = d.handPlayCounts || {};
-    // 导入码/坏档防御：只接受形状合法的牌，避免渲染期崩溃
-    if (Array.isArray(d.masterDeck)) {
-      const cleanDeck = d.masterDeck.filter(c => c && SUITS.includes(c.suit) && RANK_VAL[c.rank] != null && typeof c.id === "string");
-      if (cleanDeck.length) G.masterDeck = cleanDeck;
-    }
-    G.handSize = d.handSize ?? 8;
+    const cleanDeck = sanitizeCards(d.masterDeck);
+    if (cleanDeck.length) G.masterDeck = cleanDeck;
+    G.handSize = d.handSize ?? BALANCE.handSize;
     G.bonusHands = d.bonusHands || 0;
     G.bonusDiscards = d.bonusDiscards || 0;
     G.freeReroll = d.freeReroll || 0;
@@ -237,12 +252,23 @@ function loadGame() {
     G.endless = !!d.endless;
     G.bestHand = d.bestHand || null;
     G.vouchers = (d.vouchers || []).filter(id => VOUCHER_BY_ID.has(id));
-    G.maxJokers = d.maxJokers ?? 5;
-    G.maxConsumables = d.maxConsumables ?? 2;
-    G.interestCap = d.interestCap ?? 5;
-    G.pendingPack = d.pendingPack || null;
+    G.maxJokers = d.maxJokers ?? BALANCE.maxJokers;
+    G.maxConsumables = d.maxConsumables ?? BALANCE.maxConsumables;
+    G.interestCap = d.interestCap ?? BALANCE.interestCap;
+    // 开包快照按定义表过滤失效 id（旧版本改名/删卡的导入码不再让 showPackOverlay 抛错丢档）
+    G.pendingPack = null;
+    if (d.pendingPack && Array.isArray(d.pendingPack.choices)) {
+      const known = d.pendingPack.kind === "arcana" ? id => TAROT_BY_ID.has(id)
+        : d.pendingPack.kind === "celestial" ? id => PLANETS.some(p => p.id === id)
+        : d.pendingPack.kind === "buffoon" ? id => JOKER_BY_ID.has(id) : null;
+      const choices = known ? d.pendingPack.choices.filter(id => typeof id === "string" && known(id)) : [];
+      if (choices.length) G.pendingPack = { kind: d.pendingPack.kind, choices };
+    }
     G.deckId = d.deckId || "classic";
     G.mode = MODES.some(m => m.id === d.mode) ? d.mode : "normal";
+    // v8: 挑战标志随档恢复；旧档回退为按当前种子推导（原行为）
+    G.isDaily = d.isDaily ?? (G.seed === todaySeed());
+    G.isWeekly = d.isWeekly ?? (G.seed === weekSeed());
     G.voucherDiscount = !!d.voucherDiscount;
     G.investment = d.investment || 0;
     G.doubleTag = d.doubleTag || 0;
@@ -250,7 +276,7 @@ function loadGame() {
     if (d.state === "playing" && d.mid && Array.isArray(d.mid.hand)) {
       Object.assign(G, {
         state: "playing",
-        deck: d.mid.deck || [], hand: d.mid.hand,
+        deck: sanitizeCards(d.mid.deck), hand: sanitizeCards(d.mid.hand),
         handsLeft: d.mid.handsLeft, discardsLeft: d.mid.discardsLeft,
         roundDiscards: d.mid.roundDiscards ?? 1,   // 旧档未知时按已弃牌处理，避免误发铁手成就
         roundScore: d.mid.roundScore || 0, target: d.mid.target,
@@ -260,11 +286,9 @@ function loadGame() {
       });
       G.currentBoss = activeBossFor(G);   // 含奇科禁用与 Boss Rush（旧写法回合中读档会丢 Boss Rush 减益）
       G.disabledJokerUid = d.mid.disabledJokerUid ?? null;   // 猩红之心的禁用随档恢复
-      $("blind-select").classList.add("hidden");
-      $("shop").classList.add("hidden");
-      render();
+      restoreBoard();
       flashMessage(S("msg_restored"));
-      checkDeadEnd();   // 空手牌残局的存档：恢复后立即结算而非软锁
+      checkDeadEnd();   // 空手牌残局的存档（含被清洗为空的敌意手牌）：恢复后立即结算而非软锁
       // v7: 计分动画中刷新 → 自动重放同一手（计分确定性 → 结果与刷新前一致，防"看结果悔棋"）
       if (Array.isArray(d.mid.pendingPlay) && d.mid.pendingPlay.length) {
         const ids = d.mid.pendingPlay.filter(id => G.hand.some(c => c.id === id));
@@ -273,13 +297,14 @@ function loadGame() {
           playHand();
         }
       }
-    } else if (d.state === "roundwon" && d.cashout) {
-      // v7: 结算屏中刷新 → 恢复待收取奖励
+    } else if (d.state === "roundwon" && d.cashout && typeof d.cashout.earn === "number" && Array.isArray(d.cashout.lines)) {
+      // v7: 结算屏中刷新 → 恢复待收取奖励（lines 强制为字符串二元组，配合渲染端 esc 防注入）
       G.state = "roundwon";
-      G._cashout = d.cashout;
-      $("blind-select").classList.add("hidden");
-      $("shop").classList.add("hidden");
-      render();
+      G._cashout = {
+        earn: d.cashout.earn,
+        lines: d.cashout.lines.filter(l => Array.isArray(l) && l.length === 2).map(l => [String(l[0]), String(l[1])]),
+      };
+      restoreBoard();
       renderCashout();
       flashMessage(S("msg_restored"));
     } else if (d.state === "shop" && Array.isArray(d.shop?.stock)) {
@@ -313,8 +338,8 @@ function newGameState(seed) {
     seed: s,
     masterDeck: buildMasterDeck(),
     deck: [], hand: [], selected: new Set(),
-    jokers: [], maxJokers: 5,
-    consumables: [], maxConsumables: 2,
+    jokers: [], maxJokers: BALANCE.maxJokers,
+    consumables: [], maxConsumables: BALANCE.maxConsumables,
     money: BALANCE.startMoney, ante: 1, round: 0,
     handSize: BALANCE.handSize,
     maxHands: BALANCE.baseHands, maxDiscards: BALANCE.baseDiscards,
@@ -330,8 +355,9 @@ function newGameState(seed) {
     seenBosses: [], endless: false, bestHand: null,
     handLevels: Object.fromEntries(Object.keys(HAND_TYPES).map(k => [k, 1])),
     handPlayCounts: {},
-    shopStock: [], rerollCost: 5,
+    shopStock: [], rerollCost: BALANCE.rerollBase,   // 初值仅占位，openShop 每次按持券重算
     deckId: "classic", mode: "normal",
+    isDaily: false, isWeekly: false,   // 挑战身份在 newGame 按种子定格（跨 UTC 午夜不漂移）
     scoring: false, speed: 1, _deadEnd: false, _cashout: null, _pendingPlay: null,
     state: "blind-select",
   });
@@ -339,6 +365,8 @@ function newGameState(seed) {
 
 function newGame(seed, deckId = "classic", mode = "normal") {
   newGameState(seed);
+  G.isDaily = G.seed === todaySeed();
+  G.isWeekly = G.seed === weekSeed();
   G.mode = MODES.some(m => m.id === mode) ? mode : "normal";
   const deck = DECKS.find(d => d.id === deckId) || DECKS[0];
   G.deckId = deck.id;
@@ -533,16 +561,16 @@ function scoringJokers(g) {
 function computeScoring(cards, g = G) {
   const ev = evaluate(cards, g);
   const stats = handStats(ev.type, g);
-  // 打出的牌全部被 Boss 禁用 → 0 分
-  if (cards.length > 0 && ev.activeCount === 0) {
-    return { ev, stats, ctx: null, steps: [], chips: 0, mult: 0, total: 0, allDebuffed: true };
-  }
   const ctx = {
     type: ev.type, cards, playedCount: cards.length,
     scoringCards: ev.scoringCards,
     hasPair: ev.hasPair, hasThree: ev.hasThree,
     firstFace: cards.find(c => ["J", "Q", "K"].includes(c.rank) && !isDebuffed(c, g)) || null,
   };
+  // 打出的牌全部被 Boss 禁用 → 0 分（ctx 仍完整返回，onPlay 钩子不吃阉割版）
+  if (cards.length > 0 && ev.activeCount === 0) {
+    return { ev, stats, ctx, steps: [], chips: 0, mult: 0, total: 0, allDebuffed: true };
+  }
   const sj = scoringJokers(g);
   let chips = stats.chips, mult = stats.mult;
   // Boss: 燧石 — 牌型基础筹码和倍率减半

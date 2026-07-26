@@ -3,7 +3,7 @@
    --fast: 全程快进时钟并跳过整局模拟，供日常迭代秒级反馈（提交前跑全量） */
 const fs = require("fs");
 const path = require("path");
-const { elements, compileGame, enableFastClock, makeBot, ROOT } = require("./harness");
+const { elements, compileGame, enableFastClock, makeBot, ROOT, SOURCES } = require("./harness");
 const FAST = process.argv.includes("--fast");
 
 const api = compileGame();
@@ -308,6 +308,15 @@ G.selected = new Set([G.hand[0].id]);
 G.consumables = [{ id: "cryptid", uid: "cr1" }];
 assert(useConsumable(G.consumables[0]) === true, "谜影使用成功");
 assert(G.masterDeck.length === deckBefore - 5 + 2, "谜影: 牌库 +2 副本");
+// apply 返回 null 的消耗品不消耗（v1.4.1 修复：曾被静默吞掉白扣一张）
+newGameState(36);
+G.masterDeck = G.masterDeck.slice(0, api.BALANCE.immolateFloor);
+G.consumables = [{ id: "immolate", uid: "imN" }];
+assert(useConsumable(G.consumables[0]) === false && G.consumables.length === 1, "献祭: 牌库≤保底时不消耗");
+G.jokers = [];
+G.consumables = [{ id: "ectoplasm", uid: "ecN" }];
+assert(useConsumable(G.consumables[0]) === false && G.consumables.length === 1, "灵质: 无可选小丑时不消耗");
+G.consumables = [];
 
 /* ---------- 新标签 ---------- */
 assert(api.SKIP_TAGS.length === 7, "7 种标签");
@@ -322,8 +331,8 @@ assert(G.money === m0money + 4, "小丑标签: 槽满改发 $4");
 G.jokers = [];
 api.SKIP_TAGS.find(t => t.id === "voucher_tag").apply(G);
 assert(G.voucherDiscount === true, "折扣标签生效");
-api.SKIP_TAGS.find(t => t.id === "investment_tag").apply(G);
-assert(G.investment === 1, "投资标签生效");
+const invMsg = api.SKIP_TAGS.find(t => t.id === "investment_tag").apply(G);
+assert(G.investment === 1 && invMsg.includes(String(api.BALANCE.investmentPayout)), "投资标签生效且文案随 BALANCE 插值");
 api.SKIP_TAGS.find(t => t.id === "double_tag").apply(G);
 assert(G.doubleTag === 1, "加倍标签生效");
 
@@ -338,6 +347,9 @@ assert(api.HELP_PAGES.length === 4 && api.HELP_PAGES.every(p => p.title.zh && p.
   for (const f of ["defs.js", "engine.js", "audio.js", "ui.js", "main.js"]) {
     const src = fs.readFileSync(path.join(ROOT, f), "utf8");
     [...src.matchAll(/\bS\("([\w]+)"/g)].forEach(x => used.add(x[1]));
+    // 间接传键的调用点：tipOnce(key, msgKey) 与 updateChallengeButtons 的 mark(id, key)
+    [...src.matchAll(/\btipOnce\("\w+", *"(\w+)"/g)].forEach(x => used.add(x[1]));
+    [...src.matchAll(/\bmark\("[\w-]+", *"(\w+)"/g)].forEach(x => used.add(x[1]));
   }
   const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
   [...html.matchAll(/data-i18n="([\w]+)"/g)].forEach(x => used.add(x[1]));
@@ -399,6 +411,20 @@ localStorage.removeItem("joker_save_v1");
 assert(api.weekSeed() === api.weekSeed(), "weekSeed 确定性");
 assert(api.weekSeed() !== api.todaySeed(), "周种子 ≠ 日种子");
 assert(Number.isInteger(api.weekSeed()) && api.weekSeed() > 0, "weekSeed 是正整数");
+// 周界按 UTC 翻转（v1.4.1 修复：weekSeed 曾用本地时区分量，周界前后跨时区玩家种子不同）
+assert(api.weekSeed(new Date("2026-07-26T23:59:00Z")) !== api.weekSeed(new Date("2026-07-27T00:01:00Z")),
+  "weekSeed 在 UTC 周一零点翻新周");
+assert(api.weekSeed(new Date("2026-07-26T23:59:00Z")) === api.weekSeed(new Date("2026-07-20T00:01:00Z")),
+  "同一 ISO 周（周一到周日）种子一致");
+assert(api.todaySeed(new Date("2026-07-26T23:59:00Z")) !== api.todaySeed(new Date("2026-07-27T00:01:00Z")),
+  "todaySeed 在 UTC 零点翻新天");
+{
+  // 源码级 tripwire：挑战种子函数只允许 UTC 取值器（本地时区分量会破坏"全球统一"承诺）
+  const engSrc = fs.readFileSync(path.join(ROOT, "engine.js"), "utf8");
+  const seedFns = engSrc.slice(engSrc.indexOf("const todaySeed"), engSrc.indexOf("/* ---------- 游戏状态"));
+  assert(seedFns.length > 100, "种子函数区段定位成功");
+  assert(!/\bget(FullYear|Month|Date|Day)\(/.test(seedFns), "挑战种子函数禁用本地时区取值器");
+}
 
 /* ---------- 大数显示 ---------- */
 assert(api.fmt(1234) === "1,234", "fmt 千分位");
@@ -449,10 +475,17 @@ G.mode = "boss_rush"; G.ante = 9;
 recordGameEnd(true);
 assert(loadStats().achievements.includes("rush_win"), "BossRush 通关成就");
 G.mode = "normal";
-G.seed = api.todaySeed(); recordGameEnd(false);
+// v8: didDaily/didWeekly 读开局定格的标志（跨 UTC 午夜结束的挑战局不再漏记）
+G.isDaily = true; G.isWeekly = false; recordGameEnd(false);
 assert(!loadStats().achievements.includes("challenger"), "只玩每日不解锁挑战者");
-G.seed = api.weekSeed(); recordGameEnd(false);
+G.isDaily = false; G.isWeekly = true; recordGameEnd(false);
 assert(loadStats().achievements.includes("challenger"), "每日+每周解锁挑战者");
+newGame(api.todaySeed());
+assert(G.isDaily === true && G.isWeekly === false, "每日挑战开局定格 isDaily");
+newGame(api.weekSeed());
+assert(G.isWeekly === true && G.isDaily === false, "每周挑战开局定格 isWeekly");
+newGame(424242);
+assert(G.isDaily === false && G.isWeekly === false, "普通种子无挑战标志");
 // 图鉴分区收录
 api.markSeen("seenConsumables", ["aura", "hermit"]);
 api.markSeen("seenVouchers", ["crate"]);
@@ -540,7 +573,10 @@ assert(G.maxJokers === 6, "伙伴合约: 小丑槽 +1");
 const compound = { kind: "voucher", def: VOUCHERS.find(v => v.id === "compound"), sold: false };
 G.shopStock = [compound];
 buyItem(compound, compound.def.cost);
-assert(G.interestCap === 10, "复利: 利息上限 $10");
+assert(G.interestCap === api.BALANCE.compoundInterestCap, "复利: 利息上限从 BALANCE.compoundInterestCap 取值");
+assert(compound.def.desc.zh.includes("$" + api.BALANCE.compoundInterestCap)
+  && compound.def.desc.en.includes("$" + api.BALANCE.compoundInterestCap), "复利文案与 BALANCE 同步");
+assert(G.maxJokers === api.BALANCE.maxJokers + 1, "槽位基准收拢进 BALANCE（伙伴合约后 +1）");
 
 /* ---------- 商店库存构成 ---------- */
 newGameState(17);
@@ -669,6 +705,49 @@ const dirtySave = { ...v5save, v: 7, masterDeck: [{ suit: "♠", rank: "A", id: 
 localStorage.setItem("joker_save_v1", JSON.stringify(dirtySave));
 assert(loadGame() === true && G.masterDeck.length === 1 && G.masterDeck[0].id === "m0", "坏档牌库条目被过滤: " + G.masterDeck.length);
 localStorage.removeItem("joker_save_v1");
+// v7 档（无 isDaily/isWeekly 时代）→ 按当前种子推导，普通种子默认 false
+const v7save = { ...v5save, v: 7, seed: 424242, state: "other" };
+localStorage.setItem("joker_save_v1", JSON.stringify(v7save));
+assert(loadGame() === true && G.isDaily === false && G.isWeekly === false, "v7 旧档挑战标志推导默认 false");
+localStorage.removeItem("joker_save_v1");
+// v8: 挑战标志随档往返
+newGame(api.todaySeed());
+G.state = "blind-select";
+saveGame();
+newGameState(1);
+assert(loadGame() === true && G.isDaily === true && G.isWeekly === false, "v8 挑战标志随档恢复");
+localStorage.removeItem("joker_save_v1");
+
+/* ---------- v8: 敌意"存档码"白名单清洗（mid.hand/deck、cashout、pendingPack） ---------- */
+const evilSave = { ...v5save, v: 8, state: "playing",
+  mid: {
+    hand: [
+      { suit: "♠", rank: "<img src=x onerror=alert(1)>", id: "x0" },
+      { suit: "♠", rank: "A", id: "x1", perm: "\" onmouseover=\"alert(2)", enh: "hax", evil: 1 },
+    ],
+    deck: [null, { suit: "♦", rank: "K", id: "x2", perm: 5 }],
+    handsLeft: 2, discardsLeft: 2, roundScore: 0, target: 100,
+  } };
+localStorage.setItem("joker_save_v1", JSON.stringify(evilSave));
+assert(loadGame() === true, "敌意档可加载");
+assert(G.hand.length === 1 && G.hand[0].rank === "A", "非法 rank 的手牌被丢弃");
+assert(G.hand[0].perm === undefined && G.hand[0].enh === undefined && /** @type {any} */ (G.hand[0]).evil === undefined,
+  "手牌白名单重建: 注入字段被剥离");
+assert(G.deck.length === 1 && G.deck[0].rank === "K" && G.deck[0].perm === 5, "回合牌库同样过滤且合法 perm 保留");
+localStorage.removeItem("joker_save_v1");
+const evilCash = { ...v5save, v: 8, state: "roundwon", cashout: { earn: 5, lines: [["<b>x</b>", "<i>1</i>"], "junk", [1]] } };
+localStorage.setItem("joker_save_v1", JSON.stringify(evilCash));
+assert(loadGame() === true && G._cashout.lines.length === 1, "cashout.lines 只保留二元组");
+assert(elements["cashout-lines"].innerHTML.includes("&lt;b&gt;") && !elements["cashout-lines"].innerHTML.includes("<b>x</b>"),
+  "结算行渲染经 esc 转义");
+localStorage.removeItem("joker_save_v1");
+const evilPack = { ...v5save, v: 8, state: "other", pendingPack: { kind: "arcana", choices: ["hermit", "no_such_tarot"] } };
+localStorage.setItem("joker_save_v1", JSON.stringify(evilPack));
+assert(loadGame() === true && G.pendingPack.choices.join(",") === "hermit", "pendingPack 失效 id 被过滤");
+const deadPack = { ...v5save, v: 8, state: "other", pendingPack: { kind: "celestial", choices: ["nope"] } };
+localStorage.setItem("joker_save_v1", JSON.stringify(deadPack));
+assert(loadGame() === true && G.pendingPack === null, "pendingPack 全失效则丢弃整包");
+localStorage.removeItem("joker_save_v1");
 
 /* ---------- SW 资源清单与缓存版本校验 ---------- */
 {
@@ -679,7 +758,8 @@ localStorage.removeItem("joker_save_v1");
   for (const a of assetList) {
     assert(fs.existsSync(path.join(ROOT, a)), `SW 资源存在: ${a}`);
   }
-  const expected = ["index.html", "style.css", "i18n.js", "defs.js", "engine.js", "ui.js", "manifest.json", "icon.svg", "apple-touch-icon.png"];
+  // 清单完备性由 harness 的 SOURCES 推导（单一事实来源），静态资源显式列出
+  const expected = [...SOURCES, "index.html", "style.css", "manifest.json", "icon.svg", "apple-touch-icon.png", "icon-maskable.png"];
   for (const f of expected) {
     assert(assetList.includes(f), `SW 清单包含: ${f}`);
   }
@@ -698,6 +778,23 @@ localStorage.removeItem("joker_save_v1");
       pass++;   // 本周期已升级缓存版本
     }
   } catch (e) { /* 无 git 环境时跳过 */ }
+  // CI：fresh checkout 工作树恒干净，上面的检查会空转——改用推送基准对比补上最后防线
+  // （workflow 以 TEST_BASE_SHA 传入 github.event.before / PR base，配合 fetch-depth: 0）
+  const baseSha = process.env.TEST_BASE_SHA;
+  if (baseSha && /^[0-9a-f]{7,40}$/i.test(baseSha) && !/^0+$/.test(baseSha)) {
+    try {
+      const { execSync } = require("child_process");
+      const baseSw = execSync(`git show ${baseSha}:sw.js`, { cwd: ROOT, stdio: ["ignore", "pipe", "ignore"] }).toString();
+      const baseCache = (baseSw.match(/const CACHE = "([^"]+)"/) || [])[1];
+      if (baseCache === cacheName) {
+        const diff = execSync(`git diff --name-only ${baseSha} HEAD -- ${assetList.join(" ")}`,
+          { cwd: ROOT, stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+        assert(!diff, `静态资源相对推送基准(${baseSha.slice(0, 7)})已改动但 CACHE 仍为 "${cacheName}"，请升级版本号:\n${diff}`);
+      } else {
+        pass++;   // 本次推送已升级缓存版本
+      }
+    } catch (e) { /* 基准不可达（force push / 首次推送）时跳过 */ }
+  }
 }
 
 (async () => {
@@ -893,6 +990,12 @@ localStorage.removeItem("joker_save_v1");
   };
   // 规则改写/复制/卡牌成长类走 evaluate/onPlay，已在上方单测覆盖；奇科(activeBossFor)/佩尔科(onShopEnter)有专项单测
   const AUDIT_EXEMPT = new Set(["four_fingers", "shortcut", "splash", "blueprint", "hiker", "chicot", "perkeo"]);
+  // 免检不是免测：每个 exempt id 必须在本文件的专项单测里被引用（声明行之外 ≥1 次带引号出现）
+  const selfSrc = fs.readFileSync(__filename, "utf8");
+  for (const id of AUDIT_EXEMPT) {
+    const refs = selfSrc.split(`"${id}"`).length - 1;
+    assert(refs >= 2, `AUDIT_EXEMPT 免检卡需有专项单测引用: ${id} (${refs})`);
+  }
   for (const def of JOKER_DEFS) {
     if (AUDIT_EXEMPT.has(def.id)) { pass++; continue; }
     if (!SCEN[def.id]) { fail++; console.error("FAIL 缺少触发审计场景:", def.id); continue; }
@@ -937,6 +1040,16 @@ localStorage.removeItem("joker_save_v1");
   startBlind(2);
   await new Promise(r => setTimeout(r, 30));
   assert(G.state === "over", "死局C: 通灵者凑不齐5张即结算: " + G.state);
+  // D) 回合中用吊人销毁最后的手牌 → 消耗品是第五条死局路径（v1.4.1 修复）
+  newGameState(886);
+  G.masterDeck = G.masterDeck.slice(0, 2);
+  G.boss = BOSSES[0];
+  startBlind(0);
+  G.consumables = [{ id: "hanged", uid: "dd1" }];
+  G.selected = new Set(G.hand.map(x => x.id));
+  assert(useConsumable(G.consumables[0]) === true, "死局D: 吊人销毁最后的手牌");
+  await new Promise(r => setTimeout(r, 30));
+  assert(G.state === "over", "死局D: 消耗品清空手牌后结算而非软锁: " + G.state);
   localStorage.removeItem("joker_save_v1");
   localStorage.removeItem("joker_stats_v1");
 

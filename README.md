@@ -6,7 +6,7 @@ Balatro 风格的纯前端网页卡牌游戏，无任何依赖，打开 `index.h
 
 ![对局截图 / Gameplay](screenshot.png)
 
-> **English**: A Balatro-style roguelike deckbuilder in pure vanilla JS — zero dependencies, zero build step, just open `index.html`. Full English UI (toggle in the sidebar). Features: 12 poker hands incl. hidden ones, 54 Jokers across 6 mechanic classes (retriggers, scaling, held-in-hand, rule-benders, Blueprint copying, card growth) incl. 5 Legendaries, editions, tarot/spectral consumables that permanently sculpt your deck, booster packs, vouchers, 14 boss blinds, 5 starting decks, endless mode, daily runs, seeded share links (`?seed=…&deck=…`), achievements, collection & run history, offline PWA. Dev: `node test/test.js` (380 assertions incl. bot-driven full-run sims), `node test/balance.js` (win-rate / death-ante reports), `python3 test/e2e.py` (browser E2E).
+> **English**: A Balatro-style roguelike deckbuilder in pure vanilla JS — zero dependencies, zero build step, just open `index.html`. Full English UI (toggle in the sidebar). Features: 12 poker hands incl. hidden ones, 54 Jokers across 6 mechanic classes (retriggers, scaling, held-in-hand, rule-benders, Blueprint copying, card growth) incl. 5 Legendaries, editions, tarot/spectral consumables that permanently sculpt your deck, booster packs, vouchers, 14 boss blinds, 5 starting decks, endless mode, daily runs, seeded share links (`?seed=…&deck=…`), achievements, collection & run history, offline PWA. Dev: `node test/test.js` (415 assertions incl. bot-driven full-run sims), `node test/balance.js` (win-rate / death-ante reports), `python3 test/e2e.py` (browser E2E).
 
 ## 玩法
 

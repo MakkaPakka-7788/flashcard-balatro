@@ -1,4 +1,6 @@
-/* ===== 小丑牌 Balatro 风格 ===== */
+/* ===== 小丑牌 Balatro 风格 =====
+   组织约定：按功能区块追加，媒体查询就近跟随其功能区（窄屏覆盖依赖"基础规则在前、媒体块在后"
+   的文档序——合并/搬移选择器前先确认没有跨区的同名覆盖，如 #joker-row 的窄屏 height:auto）。 */
 :root {
   color-scheme: dark;
   --bg: #1a4a3a;
@@ -223,7 +225,7 @@ body::after {
 
 .row-label { font-size: 12px; color: rgba(255,255,255,.55); margin-bottom: 4px; }
 
-#joker-row { height: 158px; }
+#joker-row { height: 158px; display: flex; gap: 14px; }   /* 小丑+消耗品分栏（#joker-sec/#consumable-sec 见下方分栏区） */
 #jokers {
   display: flex;
   gap: 10px;
@@ -258,6 +260,7 @@ body::after {
   font-size: 13px;
   color: rgba(255,255,255,.6);
   background: rgba(0,0,0,.3);
+  cursor: pointer;   /* 点击打开牌库一览（hover 态见牌库区） */
   padding: 4px 10px;
   border-radius: 8px;
 }
@@ -541,8 +544,8 @@ body::after {
 .joker.legendary { box-shadow: 0 4px 6px rgba(0,0,0,.45), 0 0 14px rgba(200,110,255,.5); }
 .joker.triggered { animation: jokerTrigger .4s; }
 
-/* 双击卖出确认 */
-.joker.confirm-sell {
+/* 双击确认（卖小丑 / 用消耗品共用武装态） */
+.joker.confirm-sell, .consumable.confirm-sell {
   box-shadow: 0 0 0 3px var(--red), 0 0 16px rgba(244,68,62,.5);
   animation: none;
 }
@@ -686,6 +689,8 @@ body::after {
   flex-wrap: wrap;
   min-height: 170px;
   align-items: center;
+  max-height: 62vh;    /* 最多 7 件商品，允许滚动 */
+  overflow-y: auto;
 }
 .shop-item {
   display: flex;
@@ -941,8 +946,7 @@ body::after {
   }
 }
 
-/* ===== 小丑 + 消耗品分栏 ===== */
-#joker-row { display: flex; gap: 14px; }
+/* ===== 小丑 + 消耗品分栏 =====（#joker-row 的分栏布局并入 158px 高度定义处） */
 #joker-sec { flex: 1; min-width: 0; }
 #consumable-sec { flex: none; }
 #consumables {
@@ -1064,7 +1068,6 @@ body::after {
 @media (hover: none) { .j-move { opacity: .7; } }
 
 /* ===== 牌库一览 ===== */
-#deck-info { cursor: pointer; }
 #deck-info:hover { color: #fff; background: rgba(0,0,0,.5); }
 .dv-hint { font-size: 12px; color: rgba(255,255,255,.55); margin-bottom: 12px; text-align: center; }
 #deck-grid { display: flex; flex-direction: column; gap: 8px; max-width: 640px; }
@@ -1112,9 +1115,6 @@ body::after {
 .cl-item .cl-icon { font-size: 26px; }
 .cl-item .cl-name { font-size: 10px; margin-top: 4px; color: rgba(255,255,255,.85); }
 .cl-unknown { opacity: .45; }
-
-/* 商店最多 7 件商品，允许滚动 */
-#shop-items { max-height: 62vh; overflow-y: auto; }
 
 /* ===== 小丑牌版本 ===== */
 .joker.ed-foil { box-shadow: 0 0 0 2px #9ad0e8, 0 0 14px rgba(154,208,232,.5); }

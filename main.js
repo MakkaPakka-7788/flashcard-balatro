@@ -5,33 +5,25 @@
 "use strict";
 
 /* ---------- 事件绑定 ---------- */
-/* 双击确认的破坏性按钮（重新开局 / 今日挑战） */
+/* 双击确认的破坏性按钮（重新开局 / 今日挑战）：与卖小丑/用消耗品共用 ui.confirmTwice */
 function bindConfirmButton(btn, labelKey, action) {
-  btn.onclick = () => {
-    if (btn.dataset.confirm) {
+  btn.onclick = () => confirmTwice(btn, {
+    arm: () => { btn.dataset.confirm = "1"; btn.textContent = S("confirm_abandon"); },
+    disarm: () => {
       delete btn.dataset.confirm;
       btn.textContent = S(labelKey);
-      action();
       updateChallengeButtons();   // 恢复今日/每周按钮的 ✓ 标记
-    } else {
-      btn.dataset.confirm = "1";
-      btn.textContent = S("confirm_abandon");
-      setTimeout(() => {
-        if (!btn.dataset.confirm) return;
-        delete btn.dataset.confirm;
-        btn.textContent = S(labelKey);
-        updateChallengeButtons();
-      }, 2500);
-    }
-  };
+    },
+    onConfirm: () => { action(); updateChallengeButtons(); },
+  });
 }
 
 function startFreshGame(seed, deckId, mode) {
   if (parkCurrentSave()) flashMessage(S("run_parked"));   // 进行中的对局搁置而非删除
   document.querySelectorAll(".overlay").forEach(o => o.classList.add("hidden"));
   newGame(seed, deckId, mode);
-  flashMessage(seed === todaySeed() ? S("daily_start", G.seed)
-    : seed === weekSeed() ? S("weekly_start", G.seed)
+  flashMessage(G.isDaily ? S("daily_start", G.seed)
+    : G.isWeekly ? S("weekly_start", G.seed)
     : S("seed_start", G.seed));
 }
 
@@ -89,6 +81,7 @@ $("export-btn").onclick = async () => {
     stats: localStorage.getItem(STATS_KEY),
     lang: LANG,
     muted: localStorage.getItem("joker_muted"),
+    music: localStorage.getItem("joker_music"),
     errors: localStorage.getItem("joker_errors_v1"),   // 诊断信息随码导出（导入端忽略）
   };
   const code = btoa(unescape(encodeURIComponent(JSON.stringify(data))));
@@ -109,6 +102,7 @@ $("import-btn").onclick = () => {
     if (data.stats) localStorage.setItem(STATS_KEY, data.stats);
     if (data.lang) localStorage.setItem("joker_lang", data.lang);
     if (data.muted != null) localStorage.setItem("joker_muted", data.muted);
+    if (data.music != null) localStorage.setItem("joker_music", data.music);
     if (typeof location !== "undefined" && location.reload) location.reload();
   } catch (e) {
     flashMessage(S("import_bad"));
@@ -224,7 +218,9 @@ document.addEventListener("pointerdown", e => {
    盲注选择 Enter 选择 / X 跳过
    商店     1-9 购买 / R 刷新 / Enter 下一回合
    卡包     1-3 选取 / X 或 Esc 放弃
-   任意     M 静音 / Esc 关闭弹层 */
+   任意     M 静音 / Esc 关闭弹层
+   信息弹层打开时只放行 M 与 Esc，游戏快捷键不穿透到底下界面 */
+const INFO_OVERLAYS = ["run-info", "deck-view", "collection", "deck-select", "help"];
 document.addEventListener("keydown", e => {
   if (e.repeat) return;
   const k = e.key.toLowerCase();
@@ -240,6 +236,8 @@ document.addEventListener("keydown", e => {
     else if (G.state === "playing" && !G.scoring && G.selected.size) { G.selected.clear(); render(); }
     return;
   }
+  // 信息弹层打开时其余快捷键不穿透：防止商店里翻帮助时 1-9/R/Enter 在背后购买/刷新/推进回合
+  if (INFO_OVERLAYS.some(id => !$(id).classList.contains("hidden"))) return;
   // 卡包 3 选 1
   if (G.pendingPack) {
     if (/^[1-3]$/.test(k)) pickPack(+k - 1);
@@ -277,12 +275,18 @@ document.addEventListener("keydown", e => {
 if (typeof navigator !== "undefined") navigator.storage?.persist?.().catch?.(() => {});
 /* 最近 5 条 JS 错误记入 localStorage，随「导出进度」附带——玩家反馈问题时自带现场 */
 const ERR_KEY = "joker_errors_v1";
-window.addEventListener?.("error", e => {
+function logError(msg) {
   try {
     const list = JSON.parse(localStorage.getItem(ERR_KEY)) || [];
-    list.unshift({ d: new Date().toISOString().slice(0, 19), v: GAME_VERSION, m: String(e.message || "?").slice(0, 200) });
+    list.unshift({ d: new Date().toISOString().slice(0, 19), v: GAME_VERSION, m: String(msg || "?").slice(0, 200) });
     localStorage.setItem(ERR_KEY, JSON.stringify(list.slice(0, 5)));
   } catch (err) { /* 忽略 */ }
+}
+window.addEventListener?.("error", e => logError(e.message));
+/* 核心流程（playHand 等）全是 async——异步异常走 unhandledrejection，不挂它就全部漏记 */
+window.addEventListener?.("unhandledrejection", e => {
+  const r = /** @type {any} */ (e).reason;
+  logError((r && r.message) || r);
 });
 
 /* ---------- PWA ----------
@@ -300,6 +304,11 @@ if (typeof navigator !== "undefined" && "serviceWorker" in navigator &&
         }
       });
     });
+    // 常驻不刷新的已安装 PWA 收不到导航时机的更新检查：回前台 + 每小时主动检查
+    document.addEventListener?.("visibilitychange", () => {
+      if (!document.hidden) reg.update?.().catch?.(() => {});
+    });
+    setInterval(() => reg.update?.().catch?.(() => {}), 60 * 60e3);
   }).catch(() => { /* 离线支持是增强项 */ });
 }
 
@@ -326,5 +335,9 @@ updateChallengeButtons();
     startFreshGame(urlSeed, urlDeck, urlMode);
   } else if (!restored) {
     newGame();
+  }
+  // 深链只消费一次：清掉查询串——换局后刷新/tab 回收重载不再重开深链局、不再覆盖搁置位
+  if (urlSeed !== null && typeof history !== "undefined" && history.replaceState) {
+    try { history.replaceState(null, "", location.pathname); } catch (e) { /* 忽略 */ }
   }
 })();

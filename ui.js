@@ -147,6 +147,9 @@ async function playHand() {
   G.speed = 1;
   G.handsLeft--;
   AudioFX.play();
+  // try/finally: 动画流程中任何一步抛异常都不能让 scoring 卡死输入
+  // （异常本身不吞——向上冒泡进 unhandledrejection 留痕）
+  try {
 
   // 移入出牌区
   G.hand = G.hand.filter(c => !G.selected.has(c.id));
@@ -237,10 +240,9 @@ async function playHand() {
   G.roundScore += sc.total;
 
   // 成长类小丑钩子（绿色小丑 / 坐公交 / 冰淇淋…），可返回 "destroy"
-  const ctxLite = sc.ctx || { cards, type: ev0.type, playedCount: cards.length, hasPair: ev0.hasPair, hasThree: ev0.hasThree };
   const melted = G.jokers.filter(j => {
     const def = JOKER_BY_ID.get(j.id);
-    return def?.onPlay && def.onPlay(ctxLite, G, j) === "destroy";
+    return def?.onPlay && def.onPlay(sc.ctx, G, j) === "destroy";
   });
   for (const j of melted) {
     const def = JOKER_BY_ID.get(j.id);
@@ -284,6 +286,11 @@ async function playHand() {
   checkDeadEnd();
   saveGame();
   render();
+
+  } finally {
+    G.scoring = false;   // 正常路径已复位，这里兜异常路径：保证玩家不被永久锁输入
+    G.speed = 1;
+  }
 }
 
 async function animateJokerStep(step) {
@@ -371,9 +378,33 @@ function showBossBanner(boss) {
   setTimeout(() => el.remove(), REDUCED_MOTION ? 1800 : 2600);
 }
 
+/* ---------- 两次点击确认 ----------
+   破坏性操作的统一交互：首次点击武装（视觉提示），二次点击执行，超时自动解除。
+   全局同一时刻只保留一个武装中的控件（卖小丑/用消耗品/重新开局等共用）。 */
+const CONFIRM_MS = 2500;
+let _armedConfirm = null;   // { el, disarm }
+function disarmConfirm() {
+  if (!_armedConfirm) return;
+  const a = _armedConfirm;
+  _armedConfirm = null;
+  a.disarm();
+}
+/* arm/disarm 负责视觉状态，onConfirm 执行动作；对同一元素的第二次点击即确认 */
+function confirmTwice(el, { arm, disarm, onConfirm }) {
+  if (_armedConfirm && _armedConfirm.el === el) {
+    disarmConfirm();
+    onConfirm();
+    return;
+  }
+  disarmConfirm();
+  const timer = setTimeout(() => { if (_armedConfirm && _armedConfirm.el === el) disarmConfirm(); }, CONFIRM_MS);
+  _armedConfirm = { el, disarm: () => { clearTimeout(timer); disarm(); } };
+  arm();
+}
+
 /* ---------- 死局检测 ----------
    无合法出牌可能（手牌打空 / 通灵者凑不齐 5 张且补无可补）时，
-   按当前分数直接结算。出牌 / 弃牌 / 开局 / 读档四条路径共用。 */
+   按当前分数直接结算。出牌 / 弃牌 / 开局 / 读档 / 用消耗品五条路径共用。 */
 function checkDeadEnd() {
   if (G.state !== "playing" || G.scoring || G._deadEnd) return false;
   const need5 = G.currentBoss?.id === "psychic";
@@ -483,8 +514,9 @@ async function winRound() {
 /* 结算屏渲染（winRound 与读档恢复共用） */
 function renderCashout() {
   const { earn, lines } = G._cashout;
+  // lines 可能来自导入的存档码：esc 防注入
   $("cashout-lines").innerHTML = lines.map(([a, b]) =>
-    `<div class="co-line"><span>${a}</span><span class="co-val">${b}</span></div>`).join("");
+    `<div class="co-line"><span>${esc(a)}</span><span class="co-val">${esc(b)}</span></div>`).join("");
   $("cashout-btn").textContent = `${S("cashout_collect")} $${earn}`;
   $("cashout-btn").onclick = collectCashout;
   $("cashout").classList.remove("hidden");
@@ -540,6 +572,13 @@ function doReroll() {
   rollShop();
   saveGame();
   return true;
+}
+
+/* 读档回到回合中/结算屏（loadGame 调用）：隐藏常驻弹层并整体重绘 */
+function restoreBoard() {
+  $("blind-select").classList.add("hidden");
+  $("shop").classList.add("hidden");
+  render();
 }
 
 /* 读档回到商店（loadGame 调用）：只按存档重建界面，不重跑进店钩子/随机货架 */
@@ -616,20 +655,19 @@ function renderShop() {
       el.className = "so-joker";
       el.innerHTML = `${def.icon} ${L(def.name)} <b>+$${sellValue(def)}</b>`;
       el.title = L(def.desc);
-      el.onclick = () => {
-        if (el.dataset.confirm) { sellJoker(j); return; }
-        owned.querySelectorAll?.(".so-joker").forEach?.((/** @type {any} */ x) => { delete x.dataset.confirm; x.classList.remove("so-confirm"); });
-        el.dataset.confirm = "1";
-        el.classList.add("so-confirm");
-        el.innerHTML = `${S("sell_again", sellValue(def))}`;
-        setTimeout(() => {
-          if (el.dataset.confirm) {
-            delete el.dataset.confirm;
-            el.classList.remove("so-confirm");
-            el.innerHTML = `${def.icon} ${L(def.name)} <b>+$${sellValue(def)}</b>`;
-          }
-        }, 2500);
-      };
+      el.onclick = () => confirmTwice(el, {
+        arm: () => {
+          el.dataset.confirm = "1";
+          el.classList.add("so-confirm");
+          el.innerHTML = `${S("sell_again", sellValue(def))}`;
+        },
+        disarm: () => {
+          delete el.dataset.confirm;
+          el.classList.remove("so-confirm");
+          el.innerHTML = `${def.icon} ${L(def.name)} <b>+$${sellValue(def)}</b>`;
+        },
+        onConfirm: () => sellJoker(j),
+      });
       owned.appendChild(el);
     });
   }
@@ -769,11 +807,13 @@ function useConsumable(cons) {
     G.selected.clear();
   } else {
     msg = def.apply(G);
+    if (msg == null) { flashMessage(S("cannot_use")); return false; }   // apply 返回 null = 无法使用，不消耗
   }
   G.consumables = G.consumables.filter(x => x !== cons);
   AudioFX.buy();
   flashMessage(`${def.icon} ${L(def.name)}: ${msg}`);
   hideTooltip();
+  checkDeadEnd();   // 吊人/献祭可清空手牌——消耗品是第五条死局路径，与出牌/弃牌同兜底
   saveGame();
   render();
   if (G.state === "shop") renderShop();
@@ -797,18 +837,19 @@ function makeConsumableEl(cons) {
   el.onmouseenter = e => showTarotTip(e, def);
   el.onmousemove = e => moveTooltip(e);
   el.onmouseleave = () => { hideTooltip(); cancelSellConfirm(el); };
-  // 双击确认使用（与小丑牌卖出一致的交互）
-  el.onclick = e => {
-    if (el.classList.contains("confirm-sell")) { cancelSellConfirm(el); useConsumable(cons); return; }
-    if (NO_HOVER) showTarotTip(e, def);
-    document.querySelectorAll(".consumable.confirm-sell, .joker.confirm-sell").forEach(cancelSellConfirm);
-    el.classList.add("confirm-sell");
-    const badge = document.createElement("div");
-    badge.className = "sell-badge";
-    badge.textContent = def.targets ? S("use_again_target") : S("use_again");
-    el.appendChild(badge);
-    /** @type {any} */ (el)._sellTimer = setTimeout(() => cancelSellConfirm(el), 2500);
-  };
+  // 双击确认使用（与小丑牌卖出共用 confirmTwice）
+  el.onclick = e => confirmTwice(el, {
+    arm: () => {
+      if (NO_HOVER) showTarotTip(e, def);
+      el.classList.add("confirm-sell");
+      const badge = document.createElement("div");
+      badge.className = "sell-badge";
+      badge.textContent = def.targets ? S("use_again_target") : S("use_again");
+      el.appendChild(badge);
+    },
+    disarm: () => { el.classList.remove("confirm-sell"); el.querySelector(".sell-badge")?.remove(); },
+    onConfirm: () => useConsumable(cons),
+  });
   return el;
 }
 
@@ -943,7 +984,7 @@ function runStatsHTML() {
 
 function gameOver(win) {
   G.state = "over";
-  localStorage.removeItem(SAVE_KEY);
+  try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* 隐私模式等场景静默失败 */ }
   recordGameEnd(win);
   updateChallengeButtons();
   win ? AudioFX.win() : AudioFX.lose();
@@ -1001,9 +1042,10 @@ function makeCardEl(c) {
   el.setAttribute("tabindex", "0");
   el.setAttribute("aria-label", c.rank + c.suit + (c.enh && ENH[c.enh] ? " " + L(ENH[c.enh].name) : ""));
 
+  // rank/suit 经 loadGame 白名单清洗，esc 是纵深防御（文件头的 innerHTML 规矩）
   const corners = `
-    <div class="corner tl">${c.rank}<small>${c.suit}</small></div>
-    <div class="corner br">${c.rank}<small>${c.suit}</small></div>`;
+    <div class="corner tl">${esc(c.rank)}<small>${esc(c.suit)}</small></div>
+    <div class="corner br">${esc(c.rank)}<small>${esc(c.suit)}</small></div>`;
 
   let center;
   if (c.rank === "A") {
@@ -1028,7 +1070,7 @@ function makeCardEl(c) {
     enhMark = `<div class="enh-mark" title="${L(ENH[c.enh].name)}: ${L(ENH[c.enh].desc)}">${ENH[c.enh].icon}</div>`;
   }
   // 永久成长筹码（徒步者等）
-  if (c.perm) enhMark += `<div class="perm-mark" title="+${c.perm} ${S("chips_word")}">+${c.perm}</div>`;
+  if (typeof c.perm === "number" && c.perm > 0) enhMark += `<div class="perm-mark" title="+${c.perm} ${S("chips_word")}">+${c.perm}</div>`;
   el.innerHTML = corners + center + enhMark + `<div class="card-gloss"></div>`;
   return el;
 }
@@ -1121,18 +1163,19 @@ function makeJokerEl(j, isShop = false) {
   // 触屏设备无 hover：点击商店小丑牌显示说明
   if (isShop && NO_HOVER) el.onclick = e => showTooltip(e, def, true, j.ed, j);
   if (!isShop) {
-    // 双击确认出售（避免原生 confirm 阻塞动画）
-    el.onclick = e => {
-      if (el.classList.contains("confirm-sell")) { sellJoker(j); return; }
-      if (NO_HOVER) showTooltip(e, def, false, j.ed, j);   // 触屏首次点击先看说明
-      document.querySelectorAll(".joker.confirm-sell, .consumable.confirm-sell").forEach(cancelSellConfirm);
-      el.classList.add("confirm-sell");
-      const badge = document.createElement("div");
-      badge.className = "sell-badge";
-      badge.textContent = S("sell_again", sellValue(def));
-      el.appendChild(badge);
-      /** @type {any} */ (el)._sellTimer = setTimeout(() => cancelSellConfirm(el), 2500);
-    };
+    // 双击确认出售（避免原生 confirm 阻塞动画；确认态经 confirmTwice 全局互斥）
+    el.onclick = e => confirmTwice(el, {
+      arm: () => {
+        if (NO_HOVER) showTooltip(e, def, false, j.ed, j);   // 触屏首次点击先看说明
+        el.classList.add("confirm-sell");
+        const badge = document.createElement("div");
+        badge.className = "sell-badge";
+        badge.textContent = S("sell_again", sellValue(def));
+        el.appendChild(badge);
+      },
+      disarm: () => { el.classList.remove("confirm-sell"); el.querySelector(".sell-badge")?.remove(); },
+      onConfirm: () => sellJoker(j),
+    });
     // 左右移动（小丑结算顺序影响 ×倍率收益）
     for (const [dir, cls, label] of [[-1, "j-left", "◀"], [1, "j-right", "▶"]]) {
       const b = document.createElement("button");
@@ -1175,10 +1218,9 @@ function moveTooltip(e) {
 }
 function hideTooltip() { $("tooltip").classList.add("hidden"); }
 
+/* 移开鼠标解除该元素的武装确认（其余解除路径统一走 confirmTwice/disarmConfirm） */
 function cancelSellConfirm(el) {
-  el.classList.remove("confirm-sell");
-  el.querySelector(".sell-badge")?.remove();
-  if (el._sellTimer) { clearTimeout(el._sellTimer); el._sellTimer = null; }
+  if (_armedConfirm && _armedConfirm.el === el) disarmConfirm();
 }
 
 function renderJokers() {
@@ -1208,7 +1250,7 @@ function renderStats() {
   $("round-score").textContent = fmt(G.roundScore);
   const modeDef = MODES.find(m => m.id === G.mode);
   const modeTag = G.mode !== "normal" && modeDef ? ` · ${modeDef.icon}${L(modeDef.name)}` : "";
-  const seedTag = G.seed === todaySeed() ? S("today_suffix") : G.seed === weekSeed() ? S("week_suffix") : "";
+  const seedTag = G.isDaily ? S("today_suffix") : G.isWeekly ? S("week_suffix") : "";   // 开局定格，跨 UTC 午夜不掉标
   $("seed-line").textContent = `${S("seed_word")} ${G.seed ?? "-"}${seedTag}${modeTag}`;
   const m = BLIND_META[G.blindIndex] || BLIND_META[0];
   const isBoss = G.blindIndex === 2 && G.state === "playing";

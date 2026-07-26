@@ -8,6 +8,15 @@
   "orientation": "any",
   "background_color": "#0a1a16",
   "theme_color": "#0a1a16",
+  "shortcuts": [
+    { "name": "今日挑战", "short_name": "今日", "url": "./?daily=1",
+      "icons": [{ "src": "apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }] },
+    { "name": "每周挑战", "short_name": "每周", "url": "./?weekly=1",
+      "icons": [{ "src": "apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }] }
+  ],
+  "screenshots": [
+    { "src": "screenshot.png", "sizes": "1280x800", "type": "image/png", "form_factor": "wide" }
+  ],
   "icons": [
     { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
     { "src": "apple-touch-icon.png", "sizes": "180x180", "type": "image/png", "purpose": "any" },

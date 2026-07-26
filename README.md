@@ -6,7 +6,7 @@ Balatro 风格的纯前端网页卡牌游戏，无任何依赖，打开 `index.h
 
 ![对局截图 / Gameplay](screenshot.png)
 
-> **English**: A Balatro-style roguelike deckbuilder in pure vanilla JS — zero dependencies, zero build step, just open `index.html`. Full English UI (toggle in the sidebar). Features: 12 poker hands incl. hidden ones, 54 Jokers across 6 mechanic classes (retriggers, scaling, held-in-hand, rule-benders, Blueprint copying, card growth) incl. 5 Legendaries, editions, tarot/spectral consumables that permanently sculpt your deck, booster packs, vouchers, 14 boss blinds, 5 starting decks, endless mode, daily runs, seeded share links (`?seed=…&deck=…`), achievements, collection & run history, offline PWA. Dev: `node test/test.js` (360+ assertions incl. bot-driven full-run sims), `node test/balance.js` (win-rate / death-ante reports), `python3 test/e2e.py` (browser E2E).
+> **English**: A Balatro-style roguelike deckbuilder in pure vanilla JS — zero dependencies, zero build step, just open `index.html`. Full English UI (toggle in the sidebar). Features: 12 poker hands incl. hidden ones, 54 Jokers across 6 mechanic classes (retriggers, scaling, held-in-hand, rule-benders, Blueprint copying, card growth) incl. 5 Legendaries, editions, tarot/spectral consumables that permanently sculpt your deck, booster packs, vouchers, 14 boss blinds, 5 starting decks, endless mode, daily runs, seeded share links (`?seed=…&deck=…`), achievements, collection & run history, offline PWA. Dev: `node test/test.js` (380 assertions incl. bot-driven full-run sims), `node test/balance.js` (win-rate / death-ante reports), `python3 test/e2e.py` (browser E2E).
 
 ## 玩法
 
@@ -61,7 +61,7 @@ ui.js         渲染 / 动画 / 流程
 main.js       事件绑定 / 键盘 / PWA 注册 / 启动（必须最后加载）
 sw.js         Service Worker（网络优先、缓存兜底）
 manifest.json PWA 清单
-jsconfig.json 编辑器智能提示配置（配合 engine.js 中的 JSDoc typedef）
+jsconfig.json checkJs 类型检查 + 编辑器智能提示（JSDoc typedef，CI 强制 tsc --noEmit）
 ```
 
 ## 开发
@@ -79,6 +79,6 @@ node test/balance.js jokers --runs=40             # 单卡受控实验：逐小�
 node test/balance.js check                        # 基线守护：越出容差带即报错（--update 重定基线）
 ```
 
-仓库配有 GitHub Actions（`.github/workflows/test.yml`）：push / PR 自动跑全量回归、平衡基线守护与 ESLint 静态检查（`eslint.config.mjs` 按六个源文件的顶层声明自动生成全局白名单，本地 `npx eslint .` 可跑）。
+仓库配有 GitHub Actions（`.github/workflows/test.yml`）：push / PR 自动跑全量回归、平衡基线守护、tsc 类型检查、ESLint 与浏览器 E2E（`eslint.config.mjs` 按六个源文件的顶层声明自动生成全局白名单，本地 `npx eslint .` 可跑）。
 
 所有可调数值集中在 `defs.js` 的 `BALANCE` 对象。`test/test.js` 会校验 sw.js 资源清单，并在静态资源相对 HEAD 有改动而 `CACHE` 版本未升级时报错；`test/balance-baseline.json` 记录平衡容差带，内容改动破坏曲线时 `check` 模式会拦截。

@@ -5,7 +5,8 @@
 运行: python3 test/e2e.py
 
 覆盖: 开局/出牌计分 → 中途刷新恢复 → 牌库查看 → 帮助 → 商店/卡包 →
-      牌组选择 → 键盘操作 → 分享链接 → 英文界面 → 全程无 JS 错误
+      牌组选择 → 键盘操作 → 分享链接 → 深链(?seed/?daily) → 商店刷新恢复 →
+      死局判负 → 消息堆叠 → 键盘选牌 → 塔罗即时生效 → 英文界面 → 全程无 JS 错误
 """
 import os
 import pathlib
@@ -100,6 +101,58 @@ with sync_playwright() as p:
     page.wait_for_timeout(600)
     r = page.evaluate("() => ({ seed: G.seed, deck: G.deckId, discards: G.bonusDiscards })")
     check("URL深链开局", r["seed"] == 13579 and r["deck"] == "red" and r["discards"] == 1, str(r))
+
+    # --- 每日挑战深链（manifest shortcut 用） ---
+    page.goto(URL + "?daily=1")
+    page.wait_for_timeout(600)
+    check("daily深链直达今日挑战", page.evaluate("() => G.seed === todaySeed()"))
+
+    # --- v6+: 商店中刷新恢复同一货架 ---
+    snap = page.evaluate("""() => {
+      G.money = 50; openShop();
+      G.shopStock[0].sold = true; G.rerollCost = 9; saveGame();
+      return G.shopStock.map(i => (i.def.id || i.def.kind) + ':' + !!i.sold).join(',');
+    }""")
+    page.reload()
+    page.wait_for_timeout(700)
+    r = page.evaluate("() => ({ state: G.state, stock: G.shopStock.map(i => (i.def.id || i.def.kind) + ':' + !!i.sold).join(','), cost: G.rerollCost })")
+    check("商店刷新恢复同一货架", r["state"] == "shop" and r["stock"] == snap and r["cost"] == 9, str(r))
+
+    # --- 死局：弃光极小牌库 → 判负而非胜利 ---
+    page.evaluate("""() => {
+      localStorage.removeItem('joker_save_v1');
+      newGameState(883);
+      G.masterDeck = G.masterDeck.slice(0, 6);
+      G.boss = BOSSES[0];
+      startBlind(0);
+      G.selected = new Set(G.hand.map(c => c.id));
+      discard();
+    }""")
+    page.wait_for_timeout(1600)
+    check("死局判负弹结算", page.evaluate("() => G.state") == "over" and page.is_visible("#end-screen"))
+
+    # --- flash 消息堆叠 + aria-live ---
+    n = page.evaluate("""() => {
+      flashMessage('一'); flashMessage('二');
+      const box = document.getElementById('flash-stack');
+      return { c: box.children.length, live: box.getAttribute('aria-live') };
+    }""")
+    check("消息堆叠含aria-live", n["c"] >= 2 and n["live"] == "polite", str(n))
+
+    # --- 卡牌键盘可达：焦点 + Enter 选中（不误触全局出牌） ---
+    page.evaluate("() => { localStorage.removeItem('joker_save_v1'); document.getElementById('end-screen').classList.add('hidden'); newGame(7); startBlind(0); }")
+    page.wait_for_timeout(400)
+    page.focus("#hand .card")
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(150)
+    check("焦点卡牌Enter选中", page.evaluate("() => G.selected.size") == 1 and page.evaluate("() => G.state") == "playing")
+
+    # --- 力量塔罗回合中即时生效 ---
+    check("力量塔罗立即+1弃牌", page.evaluate("""() => {
+      const b = G.discardsLeft;
+      TAROTS.find(t => t.id === 'strength').apply(G);
+      return G.discardsLeft === b + 1;
+    }"""))
 
     # --- 英文界面 ---
     page.evaluate("() => localStorage.setItem('joker_lang', 'en')")

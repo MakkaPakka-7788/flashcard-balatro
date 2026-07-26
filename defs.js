@@ -6,7 +6,7 @@
 "use strict";
 
 /* 版本号：与 sw.js 的 CACHE("joker-" + 版本) 保持一致，由测试强制校验 */
-const GAME_VERSION = "1.3.0";
+const GAME_VERSION = "1.4.0";
 
 /* ---------- 扑克常量 ---------- */
 const SUITS = ["♠", "♥", "♣", "♦"];
@@ -141,7 +141,30 @@ const BLIND_META = [
 ];
 
 /* ---------- 小丑牌定义 ---------- */
+/**
+ * 小丑牌回调契约（checkJs 用；新增回调字段先在此登记）
+ * @typedef {Object} JokerDef
+ * @property {string} id
+ * @property {string} icon
+ * @property {"common"|"uncommon"|"rare"|"legendary"} rarity
+ * @property {number} cost
+ * @property {{zh: string, en: string}} name
+ * @property {{zh: string, en: string}} desc
+ * @property {Function} [after]        牌型算完后 (ctx, g, j)
+ * @property {Function} [perCard]      逐卡计分 (card, ctx, g, j)
+ * @property {Function} [heldCard]     手中持有 (card, g, j)
+ * @property {Function} [retrigger]    额外触发次数 (card, ctx, g, j)
+ * @property {Function} [money]        回合结算得钱 (g, j)
+ * @property {Function} [onPlay]       每手结算后 (ctx, g, j)，可返回 "destroy"
+ * @property {Function} [onDiscard]    弃牌时 (cards, g, j)
+ * @property {Function} [onReroll]     商店刷新时 (g, j)
+ * @property {Function} [onShopEnter]  进店时 (g, j)
+ * @property {Function} [roundEnd]     回合结束 (g, j)，可返回 "destroy"
+ * @property {Function} [stateText]    成长值展示 (j)
+ * @property {"right"} [copy]          蓝图复制方向
+ */
 /* trigger: perCard(逐卡计分时) / after(牌型算完后) / money(结算时) */
+/** @type {JokerDef[]} */
 const JOKER_DEFS = [
   { id: "joker", icon: "🃏", rarity: "common", cost: 3,
     name: { zh: "小丑", en: "Joker" },
@@ -441,7 +464,7 @@ const PLANETS = [
    apply(g)              : 即时效果，返回本地化消息
    targets:[min,max] + applyCards(cards, g) : 对选中手牌生效（回合中） */
 const suitTarot = (id, zhName, enName, icon, suit) => ({
-  id, icon, cost: 4, targets: [1, 3],
+  id, icon, cost: 4, targets: /** @type {[number, number]} */ ([1, 3]),
   name: { zh: zhName, en: enName },
   desc: { zh: `选中 ≤3 张手牌变为${SUIT_NAME[suit].zh}`, en: `Convert up to 3 selected cards to ${SUIT_NAME[suit].en}` },
   applyCards: (cards, g) => {
@@ -450,7 +473,7 @@ const suitTarot = (id, zhName, enName, icon, suit) => ({
   },
 });
 const enhTarot = (id, zhName, enName, icon, enh) => ({
-  id, icon, cost: 5, targets: [1, 1],
+  id, icon, cost: 5, targets: /** @type {[number, number]} */ ([1, 1]),
   name: { zh: zhName, en: enName },
   desc: { zh: `选中 1 张手牌变为${ENH[enh].name.zh}（${ENH[enh].desc.zh}）`,
           en: `Convert 1 selected card to a ${ENH[enh].name.en} (${ENH[enh].desc.en})` },
@@ -459,6 +482,20 @@ const enhTarot = (id, zhName, enName, icon, enh) => ({
     return S("msg_enhanced", cards[0].rank + cards[0].suit, L(ENH[enh].name));
   },
 });
+/**
+ * @typedef {Object} ConsumableDef
+ * @property {string} id
+ * @property {string} icon
+ * @property {number} cost
+ * @property {{zh: string, en: string}} name
+ * @property {{zh: string, en: string}} desc
+ * @property {boolean} [spectral]
+ * @property {[number, number]} [targets]
+ * @property {Function} [apply]
+ * @property {Function} [applyCards]
+ * @property {Function} [canUse]
+ */
+/** @type {ConsumableDef[]} */
 const TAROTS = [
   { id: "hermit", icon: "🕯", cost: 4,
     name: { zh: "隐者", en: "The Hermit" },
@@ -535,6 +572,7 @@ const TAROT_BY_ID = new Map(TAROTS.map(t => [t.id, t]));
 
 /* ---------- 幻灵牌（高风险高收益消耗品，商店塔罗位低概率出现） ----------
    apply 返回 null 表示无法使用（不消耗） */
+/** @type {ConsumableDef[]} */
 const SPECTRALS = [
   { id: "ectoplasm", icon: "🫧", cost: 6, spectral: true,
     name: { zh: "灵质", en: "Ectoplasm" },

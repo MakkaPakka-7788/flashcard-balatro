@@ -1,6 +1,7 @@
+// @ts-nocheck —— SW 全局(self/skipWaiting)不在 DOM lib 里，本文件跳过类型检查
 /* 小丑牌 · JOKER — Service Worker
-   网络优先、缓存兜底：在线时始终拿最新版本，离线时用缓存照常游玩。 */
-const CACHE = "joker-1.3.0";
+   网络优先 + 弱网 3 秒回退缓存：在线拿最新版，弱网/离线秒开。 */
+const CACHE = "joker-1.4.0";
 const ASSETS = [
   "./", "./index.html", "./style.css",
   "./i18n.js", "./defs.js", "./engine.js", "./audio.js", "./ui.js", "./main.js",
@@ -26,13 +27,20 @@ self.addEventListener("fetch", e => {
   // 导航请求（含 ?seed=… 分享深链）统一按壳页面 "./" 缓存与匹配：离线也能打开分享链接，
   // 且不会为每个不同 query 的 URL 落一份冗余缓存
   const key = e.request.mode === "navigate" ? "./" : e.request;
-  e.respondWith(
-    fetch(e.request).then(res => {
+  e.respondWith((async () => {
+    // 网络优先；弱网 3 秒未响应先回缓存秒开（网络照常在后台完成并刷新缓存供下次用）
+    const network = fetch(e.request).then(res => {
       if (res.ok) {   // 404/500 等失败响应不写缓存，避免污染离线兜底
         const copy = res.clone();
         caches.open(CACHE).then(c => c.put(key, copy));
       }
       return res;
-    }).catch(() => caches.match(key))
-  );
+    }).catch(() => null);
+    const first = await Promise.race([network, new Promise(r => setTimeout(() => r("slow"), 3000))]);
+    if (first && first !== "slow") return first;
+    const hit = await caches.match(key);
+    if (hit) return hit;
+    const late = await network;   // 无缓存可用：等网络的最终结果
+    return late || Response.error();
+  })());
 });

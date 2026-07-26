@@ -1,3 +1,4 @@
+// @ts-nocheck —— 测试走 node 直跑，类型检查只覆盖游戏源码
 /* =========================================================
    测试共享环境：DOM 桩 + 源码编译 + 快进时钟 + 分级策略机器人
    test.js（回归测试）与 balance.js（平衡报告）共用。
@@ -52,7 +53,7 @@ function compileGame() {
     SPECTRALS, SPECTRAL_BY_ID, SKIP_TAGS, HELP_PAGES, consumableDef, sellJoker, shareLink,
     ACHIEVEMENTS, awardAchievement, fmt, BALANCE, GAME_VERSION, MODES, weekSeed, todaySeed, runMaxAnte, blindReward, markSeen, parkCurrentSave, hasParkedSave, restoreParkedSave,
     saveGame, loadGame, useConsumable, applyCardMod, pickBoss, openPack, choosePackOption, skipPack,
-    openShop, activeBossFor,
+    openShop, activeBossFor, doReroll, collectCashout, renderCashout, renderStats, winRound,
     loadStats, recordGameEnd, markJokersSeen, RANK_VAL, HAND_TYPES, ANTE_BASE,
     ENH_CHIPS, ENH_MULT, ENH_STEEL_X, S, L };`;
   const M = require("module");
@@ -92,8 +93,10 @@ function makeBot(api, tier = "standard") {
     }
     const bySuit = {};
     hand.forEach(x => (bySuit[x.suit] ||= []).push(x));
+    // 持有四指时 4 张同花即可成型（修复该卡单卡实验数据失真）
+    const flushNeed = G.jokers.some(j => j.id === "four_fingers") ? 4 : 5;
     for (const s in bySuit) {
-      if (bySuit[s].length >= 5) return bySuit[s].sort(byRankDesc).slice(0, 5);
+      if (bySuit[s].length >= flushNeed) return bySuit[s].sort(byRankDesc).slice(0, 5);
     }
     const byRank = {};
     hand.forEach(x => (byRank[x.rank] ||= []).push(x));
@@ -143,13 +146,19 @@ function makeBot(api, tier = "standard") {
   function orderJokers() {
     if (tier !== "expert" || G.jokers.length < 2) return;
     G.jokers.sort((a, b) => (XMULT_IDS.has(a.id) ? 1 : 0) - (XMULT_IDS.has(b.id) ? 1 : 0));
+    // 蓝图排到最右（最强）小丑的左侧以复制它（修复蓝图单卡数据失真）
+    const bp = G.jokers.findIndex(j => j.id === "blueprint");
+    if (bp >= 0 && bp !== G.jokers.length - 2) {
+      const [x] = G.jokers.splice(bp, 1);
+      G.jokers.splice(G.jokers.length - 1, 0, x);
+    }
   }
 
   function jokerValue(item) {
     return RARITY_W[item.def.rarity] * 2 + (XMULT_IDS.has(item.def.id) ? 3 : 0) + (item.ed ? 1 : 0);
   }
 
-  function botShop() {
+  function botShop(depth = 0) {
     if (tier === "novice") {
       for (const item of G.shopStock) {
         if (item.sold || item.kind !== "joker") continue;
@@ -196,6 +205,11 @@ function makeBot(api, tier = "standard") {
         buyItem(item, price);
         if (G.pendingPack && choosePackOption(0) !== true) skipPack();
       }
+    }
+    // expert: 货架无可买小丑且现金富余时付费刷新找货（闪卡成长/高价值卡；修复闪卡数据失真）
+    if (tier === "expert" && depth < 2 && G.money >= G.rerollCost + 8 &&
+        !G.shopStock.some(i => !i.sold && i.kind === "joker" && G.jokers.length < G.maxJokers && G.money >= i.def.cost)) {
+      if (api.doReroll()) botShop(depth + 1);
     }
   }
 

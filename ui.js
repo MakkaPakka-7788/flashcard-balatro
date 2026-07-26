@@ -5,7 +5,10 @@
 "use strict";
 
 /* ---------- 工具 ---------- */
+/** @param {string} id @returns {any} */
 const $ = id => document.getElementById(id);
+/* HTML 转义：innerHTML 拼接用户可控文本（导入的历史记录等）时必须过一遍 */
+const esc = s => String(s).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
 /* 计分期间点击屏幕可 4 倍速快进（G.speed） */
 const sleep = ms => new Promise(r => setTimeout(r, ms / (G.speed || 1)));
 /* 大数显示：无尽模式后期分数可达 1e12+ */
@@ -47,9 +50,9 @@ function showBlindSelect() {
     `;
     box.appendChild(el);
   }
-  box.querySelectorAll("button[data-i]").forEach(b =>
+  box.querySelectorAll("button[data-i]").forEach((/** @type {any} */ b) =>
     b.onclick = () => startBlind(+b.dataset.i));
-  box.querySelectorAll("button[data-skip]").forEach(b =>
+  box.querySelectorAll("button[data-skip]").forEach((/** @type {any} */ b) =>
     b.onclick = () => skipBlind());
   $("blind-select").classList.remove("hidden");
   $("shop").classList.add("hidden");
@@ -136,6 +139,10 @@ async function playHand() {
     flashMessage(S("psychic_need5"));
     return;
   }
+  // 反悔锁：先落一份带出牌意图的档——计分动画中刷新会自动重放同一手，而非回滚重选
+  G._pendingPlay = cards.map(c => c.id);
+  saveGame();
+  G._pendingPlay = null;
   G.scoring = true;
   G.speed = 1;
   G.handsLeft--;
@@ -468,27 +475,40 @@ async function winRound() {
     flashMessage(S("eaten_flash", `${def.icon} ${L(def.name)}`));
     G.jokers = G.jokers.filter(x => x !== j);
   }
+  G._cashout = { earn, lines };
+  renderCashout();
+  saveGame();   // v7: 结算屏随档保存，刷新后可恢复待收取奖励
+}
+
+/* 结算屏渲染（winRound 与读档恢复共用） */
+function renderCashout() {
+  const { earn, lines } = G._cashout;
   $("cashout-lines").innerHTML = lines.map(([a, b]) =>
     `<div class="co-line"><span>${a}</span><span class="co-val">${b}</span></div>`).join("");
   $("cashout-btn").textContent = `${S("cashout_collect")} $${earn}`;
-  $("cashout-btn").onclick = () => {
-    G.money += earn;
-    AudioFX.money();
-    $("cashout").classList.add("hidden");
-    // Boss 击败 → 下一底注
-    if (G.blindIndex === 2) {
-      G.ante++;
-      if (G.ante >= 12 && G.mode !== "quick") awardAchievement("endless12");
-      if (!G.endless && G.ante > runMaxAnte()) { gameOver(true); return; }
-      G.blindIndex = 0;
-      pickBoss();
-    } else {
-      G.blindIndex++;
-    }
-    saveGame();
-    openShop();
-  };
+  $("cashout-btn").onclick = collectCashout;
   $("cashout").classList.remove("hidden");
+}
+
+/* 收取奖励并推进盲注/底注 */
+function collectCashout() {
+  const earn = G._cashout?.earn || 0;
+  G._cashout = null;
+  G.money += earn;
+  AudioFX.money();
+  $("cashout").classList.add("hidden");
+  // Boss 击败 → 下一底注
+  if (G.blindIndex === 2) {
+    G.ante++;
+    if (G.ante >= 12 && G.mode !== "quick") awardAchievement("endless12");
+    if (!G.endless && G.ante > runMaxAnte()) { gameOver(true); return; }
+    G.blindIndex = 0;
+    pickBoss();
+  } else {
+    G.blindIndex++;
+  }
+  saveGame();
+  openShop();
 }
 
 function openShop() {
@@ -506,6 +526,20 @@ function openShop() {
   render();
   saveGame();
   tipOnce("shop", "tip_shop");
+}
+
+/* 商店刷新（刷新按钮与测试机器人共用）：返回 false = 刷不动 */
+function doReroll() {
+  if (G.freeReroll > 0) G.freeReroll--;
+  else if (G.money >= G.rerollCost) { G.money -= G.rerollCost; G.rerollCost += 1; }
+  else return false;
+  for (const j of G.jokers) {
+    const def = JOKER_BY_ID.get(j.id);
+    if (def?.onReroll) def.onReroll(G, j);
+  }
+  rollShop();
+  saveGame();
+  return true;
 }
 
 /* 读档回到商店（loadGame 调用）：只按存档重建界面，不重跑进店钩子/随机货架 */
@@ -584,7 +618,7 @@ function renderShop() {
       el.title = L(def.desc);
       el.onclick = () => {
         if (el.dataset.confirm) { sellJoker(j); return; }
-        owned.querySelectorAll?.(".so-joker").forEach?.(x => { delete x.dataset.confirm; x.classList.remove("so-confirm"); });
+        owned.querySelectorAll?.(".so-joker").forEach?.((/** @type {any} */ x) => { delete x.dataset.confirm; x.classList.remove("so-confirm"); });
         el.dataset.confirm = "1";
         el.classList.add("so-confirm");
         el.innerHTML = `${S("sell_again", sellValue(def))}`;
@@ -773,7 +807,7 @@ function makeConsumableEl(cons) {
     badge.className = "sell-badge";
     badge.textContent = def.targets ? S("use_again_target") : S("use_again");
     el.appendChild(badge);
-    el._sellTimer = setTimeout(() => cancelSellConfirm(el), 2500);
+    /** @type {any} */ (el)._sellTimer = setTimeout(() => cancelSellConfirm(el), 2500);
   };
   return el;
 }
@@ -844,10 +878,10 @@ function showCollection() {
         const deck = DECKS.find(d => d.id === h.deck) || DECKS[0];
         const md = MODES.find(m => m.id === h.mode);
         return `<div class="rh-row">
-          <span class="rh-date">${h.d}</span>
-          <span>${h.win ? "🏆" : "💀"} ${S("ante_word")} ${h.ante}${h.endless ? "∞" : ""} · ${deck.icon}${md && md.id !== "normal" ? md.icon : ""}</span>
-          <span class="rh-seed">${h.seed}</span>
-          <button class="small-btn rh-replay" data-seed="${h.seed}" title="${S("replay_tip")}">↻</button>
+          <span class="rh-date">${esc(h.d)}</span>
+          <span>${h.win ? "🏆" : "💀"} ${S("ante_word")} ${esc(h.ante)}${h.endless ? "∞" : ""} · ${deck.icon}${md && md.id !== "normal" ? md.icon : ""}</span>
+          <span class="rh-seed">${esc(h.seed)}</span>
+          <button class="small-btn rh-replay" data-seed="${esc(h.seed)}" title="${S("replay_tip")}">↻</button>
         </div>`;
       }).join("")
     : `<div class="rh-row rh-empty">—</div>`;
@@ -1043,7 +1077,7 @@ function renderHand() {
     const mid = (n - 1) / 2;
     const off = i - mid;
     el.style.transform = `rotate(${off * 2.2}deg) translateY(${Math.abs(off) * 4}px)`;
-    el.style.zIndex = i;
+    el.style.zIndex = String(i);
     // 发牌动画（新抽的牌依次飞入）
     if (c.isNew && !REDUCED_MOTION) {
       el.classList.add("deal-in");
@@ -1097,13 +1131,13 @@ function makeJokerEl(j, isShop = false) {
       badge.className = "sell-badge";
       badge.textContent = S("sell_again", sellValue(def));
       el.appendChild(badge);
-      el._sellTimer = setTimeout(() => cancelSellConfirm(el), 2500);
+      /** @type {any} */ (el)._sellTimer = setTimeout(() => cancelSellConfirm(el), 2500);
     };
     // 左右移动（小丑结算顺序影响 ×倍率收益）
     for (const [dir, cls, label] of [[-1, "j-left", "◀"], [1, "j-right", "▶"]]) {
       const b = document.createElement("button");
       b.className = "j-move " + cls;
-      b.textContent = label;
+      b.textContent = String(label);
       b.title = S("move_joker_tip");
       b.onclick = e => { e.stopPropagation?.(); moveJoker(j, dir); };
       el.appendChild(b);
@@ -1169,7 +1203,7 @@ function renderStats() {
   $("discards-left").textContent = G.discardsLeft;
   $("money").textContent = "$" + G.money;
   $("ante").textContent = G.ante + (G.endless ? "∞" : "");
-  $("ante-max").textContent = "/" + runMaxAnte();
+  $("ante-max").textContent = G.endless ? "" : "/" + runMaxAnte();   // 无尽模式没有上限概念
   $("round").textContent = G.round;
   $("round-score").textContent = fmt(G.roundScore);
   const modeDef = MODES.find(m => m.id === G.mode);
@@ -1238,7 +1272,7 @@ function showRunInfo() {
 /* ---------- 静态文案（data-i18n） ---------- */
 function applyStaticText() {
   const els = document.querySelectorAll?.("[data-i18n]");
-  if (els?.forEach) els.forEach(el => { el.textContent = S(el.dataset.i18n); });
+  if (els?.forEach) els.forEach((/** @type {any} */ el) => { el.textContent = S(el.dataset.i18n); });
   $("version-line").textContent = "v" + GAME_VERSION;
   document.title = S("game_title");
   document.documentElement?.setAttribute?.("lang", LANG === "en" ? "en" : "zh-CN");

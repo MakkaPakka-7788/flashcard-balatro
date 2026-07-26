@@ -89,6 +89,7 @@ $("export-btn").onclick = async () => {
     stats: localStorage.getItem(STATS_KEY),
     lang: LANG,
     muted: localStorage.getItem("joker_muted"),
+    errors: localStorage.getItem("joker_errors_v1"),   // 诊断信息随码导出（导入端忽略）
   };
   const code = btoa(unescape(encodeURIComponent(JSON.stringify(data))));
   try {
@@ -148,16 +149,9 @@ $("pack-skip-btn").onclick = () => {
   saveGame();
 };
 $("reroll-btn").onclick = () => {
-  if (G.freeReroll > 0) G.freeReroll--;
-  else if (G.money >= G.rerollCost) { G.money -= G.rerollCost; G.rerollCost += 1; }
-  else return;
+  if (!doReroll()) return;
   AudioFX.discard();
-  for (const j of G.jokers) {
-    const def = JOKER_BY_ID.get(j.id);
-    if (def?.onReroll) def.onReroll(G, j);
-  }
-  saveGame();
-  rollShop(); renderShop(); render();
+  renderShop(); render();
 };
 $("next-round-btn").onclick = () => {
   $("shop").classList.add("hidden");
@@ -211,7 +205,7 @@ window.addEventListener?.("resize", () => {
 
 /* 点击按钮后立即失焦：避免随后的 Enter/空格 重复触发按钮而不是快捷键 */
 document.addEventListener("click", e => {
-  const btn = e.target?.closest?.("button");
+  const btn = /** @type {any} */ (e.target)?.closest?.("button");
   if (btn) btn.blur?.();
 });
 
@@ -222,7 +216,7 @@ document.addEventListener("pointerdown", e => {
     G.speed = 4;
     flashMessage(S("accelerate"));
   }
-  if (NO_HOVER && !e.target?.closest?.(".joker, .consumable")) hideTooltip();
+  if (NO_HOVER && !/** @type {any} */ (e.target)?.closest?.(".joker, .consumable")) hideTooltip();
 });
 
 /* 键盘操作：
@@ -259,7 +253,7 @@ document.addEventListener("keydown", e => {
   }
   if (G.state === "shop") {
     if (/^[1-9]$/.test(k)) {
-      const btns = document.querySelectorAll("#shop-items .buy-btn");
+      const btns = /** @type {any} */ (document.querySelectorAll("#shop-items .buy-btn"));
       const b = btns[+k - 1];
       if (b && !b.disabled) b.click?.();
     } else if (k === "r" && !$("reroll-btn").disabled) $("reroll-btn").onclick();
@@ -276,6 +270,19 @@ document.addEventListener("keydown", e => {
     if (!$("discard-btn").disabled) discard();
   } else if (k === "r") { sortHand("rank"); render(); }
   else if (k === "s") { sortHand("suit"); render(); }
+});
+
+/* ---------- 持久化与错误留痕 ---------- */
+/* 申请持久存储：降低浏览器"7 天不活跃清理站点数据"抹掉存档的风险（安装为 PWA 后更稳） */
+if (typeof navigator !== "undefined") navigator.storage?.persist?.().catch?.(() => {});
+/* 最近 5 条 JS 错误记入 localStorage，随「导出进度」附带——玩家反馈问题时自带现场 */
+const ERR_KEY = "joker_errors_v1";
+window.addEventListener?.("error", e => {
+  try {
+    const list = JSON.parse(localStorage.getItem(ERR_KEY)) || [];
+    list.unshift({ d: new Date().toISOString().slice(0, 19), v: GAME_VERSION, m: String(e.message || "?").slice(0, 200) });
+    localStorage.setItem(ERR_KEY, JSON.stringify(list.slice(0, 5)));
+  } catch (err) { /* 忽略 */ }
 });
 
 /* ---------- PWA ----------
@@ -307,6 +314,9 @@ updateChallengeButtons();
       const params = new URLSearchParams(location.search);
       const s = params.get("seed");
       if (s) urlSeed = /^\d+$/.test(s) ? (parseInt(s, 10) >>> 0) : hashStr(s);
+      // manifest shortcuts 深链：?daily=1 / ?weekly=1 直达当期挑战
+      if (params.get("daily") != null) urlSeed = todaySeed();
+      else if (params.get("weekly") != null) urlSeed = weekSeed();
       urlDeck = params.get("deck") || "classic";
       urlMode = params.get("mode") || "normal";
     }

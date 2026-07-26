@@ -10,7 +10,7 @@ const AudioFX = (() => {
   let muted = false;
   try { muted = localStorage.getItem("joker_muted") === "1"; } catch (e) { /* 忽略 */ }
   const ac = () => {
-    ctx ||= new (window.AudioContext || window.webkitAudioContext)();
+    ctx ||= new (window.AudioContext || window["webkitAudioContext"])();
     if (ctx.state === "suspended") ctx.resume();   // 浏览器自动播放策略
     return ctx;
   };

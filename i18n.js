@@ -131,7 +131,6 @@ const STR = {
 
   /* 幻灵牌 */
   spectral_label:    { zh: "幻灵牌", en: "Spectral" },
-  cannot_use:        { zh: "当前无法使用", en: "Can't use this right now" },
   dead_end:          { zh: "⚠️ 无牌可打，本回合就此结算！", en: "⚠️ No playable hands left — the round ends now!" },
   msg_copied:        { zh: "复制了 2 张 {0} 进牌库", en: "Added 2 copies of {0} to your deck" },
 

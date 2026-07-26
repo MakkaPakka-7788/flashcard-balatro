@@ -54,11 +54,12 @@ function weekSeed() {
   const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
   t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7));   // 该周的周四决定 ISO 年
   const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
-  const week = Math.ceil(((t - yearStart) / 86400000 + 1) / 7);
+  const week = Math.ceil(((t.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
   return hashStr(`joker-week-${t.getUTCFullYear()}-${week}`);
 }
 
 /* ---------- 游戏状态 ---------- */
+/** @type {Record<string, any>} */
 const G = {};
 
 /* ---------- 跨局统计 / 图鉴（独立于单局存档） ---------- */
@@ -162,7 +163,7 @@ function saveGame() {
   if (G.jokers?.some(j => JOKER_BY_ID.get(j.id)?.rarity === "legendary")) awardAchievement("legendary");
   try {
     const data = {
-      v: 6,
+      v: 7, ver: GAME_VERSION,
       money: G.money, ante: G.ante, round: G.round,
       blindIndex: G.blindIndex, bossId: G.boss?.id,
       jokers: G.jokers.map(j => ({ id: j.id, uid: j.uid, state: j.state, ed: j.ed })),
@@ -179,7 +180,7 @@ function saveGame() {
       pendingPack: G.pendingPack,
       voucherDiscount: G.voucherDiscount, investment: G.investment, doubleTag: G.doubleTag,
       soldCount: G.soldCount,
-      state: G.state === "playing" ? "playing" : G.state === "shop" ? "shop" : "other",
+      state: G.state === "playing" ? "playing" : G.state === "shop" ? "shop" : G.state === "roundwon" ? "roundwon" : "other",
     };
     // 商店中存档：v6 起货架随档保存，刷新页面不再错过本次商店
     if (G.state === "shop" && Array.isArray(G.shopStock)) {
@@ -188,6 +189,8 @@ function saveGame() {
         rerollCost: G.rerollCost,
       };
     }
+    // 结算屏存档：v7 起待收取奖励入档，刷新不再回滚重打赢下的那手
+    if (G.state === "roundwon" && G._cashout) data.cashout = G._cashout;
     // 回合中存档：刷新后可从当前手牌继续
     if (G.state === "playing" && !G.scoring) {
       data.mid = {
@@ -198,6 +201,7 @@ function saveGame() {
         curHandSize: G.curHandSize, maxHands: G.maxHands, maxDiscards: G.maxDiscards,
         sortMode: G.sortMode || "rank",
         disabledJokerUid: G.disabledJokerUid,
+        pendingPlay: G._pendingPlay || null,
       };
     }
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
@@ -220,7 +224,11 @@ function loadGame() {
     G.consumables = (d.consumables || []).filter(c => consumableDef(c.id));
     Object.assign(G.handLevels, d.handLevels);
     G.handPlayCounts = d.handPlayCounts || {};
-    if (Array.isArray(d.masterDeck) && d.masterDeck.length) G.masterDeck = d.masterDeck;
+    // 导入码/坏档防御：只接受形状合法的牌，避免渲染期崩溃
+    if (Array.isArray(d.masterDeck)) {
+      const cleanDeck = d.masterDeck.filter(c => c && SUITS.includes(c.suit) && RANK_VAL[c.rank] != null && typeof c.id === "string");
+      if (cleanDeck.length) G.masterDeck = cleanDeck;
+    }
     G.handSize = d.handSize ?? 8;
     G.bonusHands = d.bonusHands || 0;
     G.bonusDiscards = d.bonusDiscards || 0;
@@ -257,6 +265,23 @@ function loadGame() {
       render();
       flashMessage(S("msg_restored"));
       checkDeadEnd();   // 空手牌残局的存档：恢复后立即结算而非软锁
+      // v7: 计分动画中刷新 → 自动重放同一手（计分确定性 → 结果与刷新前一致，防"看结果悔棋"）
+      if (Array.isArray(d.mid.pendingPlay) && d.mid.pendingPlay.length) {
+        const ids = d.mid.pendingPlay.filter(id => G.hand.some(c => c.id === id));
+        if (ids.length === d.mid.pendingPlay.length) {
+          G.selected = new Set(ids);
+          playHand();
+        }
+      }
+    } else if (d.state === "roundwon" && d.cashout) {
+      // v7: 结算屏中刷新 → 恢复待收取奖励
+      G.state = "roundwon";
+      G._cashout = d.cashout;
+      $("blind-select").classList.add("hidden");
+      $("shop").classList.add("hidden");
+      render();
+      renderCashout();
+      flashMessage(S("msg_restored"));
     } else if (d.state === "shop" && Array.isArray(d.shop?.stock)) {
       // v6: 商店中存档 → 按 id 重建货架并回到商店（不重跑 rollShop / onShopEnter 钩子）
       G.rerollCost = d.shop.rerollCost ?? BALANCE.rerollBase;
@@ -307,7 +332,7 @@ function newGameState(seed) {
     handPlayCounts: {},
     shopStock: [], rerollCost: 5,
     deckId: "classic", mode: "normal",
-    scoring: false, speed: 1, _deadEnd: false,
+    scoring: false, speed: 1, _deadEnd: false, _cashout: null, _pendingPlay: null,
     state: "blind-select",
   });
 }
@@ -386,7 +411,8 @@ function blindTarget(idx) {
     : curve[curve.length - 1] * Math.pow(BALANCE.endlessGrowth, ai - curve.length + 1);
   const bossMult = BALANCE.bossMultOverride[G.boss?.id] ?? BALANCE.bossMult;
   const mults = [1, BALANCE.bigBlindMult, bossMult];
-  return Math.floor(base * (mults[idx] ?? 1));
+  // 深无尽护栏：夹紧在安全整数内，避免比较/计分进入浮点误差区
+  return Math.min(Math.floor(base * (mults[idx] ?? 1)), Number.MAX_SAFE_INTEGER);
 }
 
 function drawToFull(initial = false) {
@@ -524,6 +550,7 @@ function computeScoring(cards, g = G) {
     chips = Math.ceil(chips / 2);
     mult = Math.ceil(mult / 2);
   }
+  /** @type {any[]} */
   const steps = [];
   const applyEffect = (j, r) => {
     if (r.chips) chips += r.chips;

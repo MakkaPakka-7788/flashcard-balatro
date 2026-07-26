@@ -1,3 +1,4 @@
+// @ts-nocheck —— 测试走 node 直跑，类型检查只覆盖游戏源码
 /* 回归测试：牌型 / 计分 / 塔罗 / 商店 / 存档迁移 / SW 资源校验 + 机器人整局模拟
    --fast: 全程快进时钟并跳过整局模拟，供日常迭代秒级反馈（提交前跑全量） */
 const fs = require("fs");
@@ -342,6 +343,10 @@ assert(api.HELP_PAGES.length === 4 && api.HELP_PAGES.every(p => p.title.zh && p.
   [...html.matchAll(/data-i18n="([\w]+)"/g)].forEach(x => used.add(x[1]));
   const missing = [...used].filter(k => !dictKeys.has(k));
   assert(missing.length === 0, "i18n 缺失键: " + missing.join(", "));
+  // 反向：字典键必须被源码/HTML 以字符串引用，防孤儿键腐化
+  const allSrc = ["defs.js", "engine.js", "audio.js", "ui.js", "main.js"].map(f => fs.readFileSync(path.join(ROOT, f), "utf8")).join("\n") + html;
+  const orphan = [...dictKeys].filter(k => !allSrc.includes(`"${k}"`));
+  assert(orphan.length === 0, "i18n 孤儿键(无引用): " + orphan.join(", "));
   assert(used.size > 60, "i18n 扫描到足够多的键引用: " + used.size);
   // 双语完整性：每个字典键都要有 zh 和 en（条目可能跨行）
   const zhOnly = [...dictSrc.matchAll(/^  (\w+): *\{([\s\S]*?)\},$/gm)]
@@ -400,6 +405,17 @@ assert(api.fmt(1234) === "1,234", "fmt 千分位");
 assert(api.fmt(2.5e9) === "2.50B", "fmt 十亿级: " + api.fmt(2.5e9));
 assert(api.fmt(1.23e13) === "1.23e13", "fmt 科学计数: " + api.fmt(1.23e13));
 assert(api.fmt(Infinity) === "∞", "fmt 无穷");
+
+/* ---------- 无尽显示与深无尽护栏 ---------- */
+newGameState(49);
+G.endless = true;
+api.renderStats();
+assert(elements["ante-max"].textContent === "", "无尽模式隐藏底注上限");
+G.endless = false;
+api.renderStats();
+assert(elements["ante-max"].textContent === "/8", "标准模式显示 /8");
+G.ante = 500;
+assert(Number.isFinite(blindTarget(0)) && blindTarget(0) <= Number.MAX_SAFE_INTEGER, "深无尽目标夹紧在安全整数内");
 
 /* ---------- 成就 ---------- */
 localStorage.removeItem("joker_stats_v1");
@@ -536,6 +552,17 @@ G.vouchers = ["overstock"];
 rollShop();
 assert(G.shopStock.filter(i => i.kind === "joker").length === 3, "超额库存: 3张小丑");
 
+/* ---------- 商店刷新（doReroll：按钮与机器人共用） ---------- */
+newGameState(29);
+G.state = "shop"; G.money = 10; G.rerollCost = 5;
+rollShop();
+assert(api.doReroll() === true && G.money === 5 && G.rerollCost === 6, "付费刷新扣费加价");
+G.freeReroll = 1;
+assert(api.doReroll() === true && G.money === 5 && G.freeReroll === 0 && G.rerollCost === 6, "免费刷新不扣钱不加价");
+G.money = 0;
+assert(api.doReroll() === false, "没钱刷不动");
+localStorage.removeItem("joker_save_v1");
+
 /* ---------- 卡包 ---------- */
 newGameState(19);
 openPack("arcana");
@@ -629,6 +656,18 @@ assert(G.disabledJokerUid === "cj", "猩红之心开局禁用小丑");
 saveGame();
 newGameState(1);
 assert(loadGame() === true && G.disabledJokerUid === "cj", "回合中读档保留禁用小丑");
+localStorage.removeItem("joker_save_v1");
+// v6 档（商店快照、无 cashout/pendingPlay 时代）
+const v6save = { ...v5save, v: 6, state: "shop",
+  shop: { stock: [{ kind: "tarot", id: "hermit", ed: null, sold: false }, { kind: "joker", id: "joker", ed: "foil", sold: true }], rerollCost: 4 } };
+localStorage.setItem("joker_save_v1", JSON.stringify(v6save));
+assert(loadGame() === true && G.state === "shop" && G.shopStock.length === 2, "v6 旧档恢复商店");
+assert(G.shopStock[1].ed === "foil" && G.shopStock[1].sold === true && G.rerollCost === 4, "v6 货架字段恢复");
+localStorage.removeItem("joker_save_v1");
+// 坏档/导入防御：masterDeck 非法条目被过滤
+const dirtySave = { ...v5save, v: 7, masterDeck: [{ suit: "♠", rank: "A", id: "m0" }, { bad: 1 }, null, { suit: "X", rank: "A", id: "m1" }] };
+localStorage.setItem("joker_save_v1", JSON.stringify(dirtySave));
+assert(loadGame() === true && G.masterDeck.length === 1 && G.masterDeck[0].id === "m0", "坏档牌库条目被过滤: " + G.masterDeck.length);
 localStorage.removeItem("joker_save_v1");
 
 /* ---------- SW 资源清单与缓存版本校验 ---------- */
@@ -900,6 +939,33 @@ localStorage.removeItem("joker_save_v1");
   assert(G.state === "over", "死局C: 通灵者凑不齐5张即结算: " + G.state);
   localStorage.removeItem("joker_save_v1");
   localStorage.removeItem("joker_stats_v1");
+
+  /* ---------- v7: 结算屏与计分中断的存档保真 ---------- */
+  // 结算屏中刷新 → 恢复待收取奖励，收取后正常进商店
+  newGameState(887);
+  G.boss = BOSSES[0];
+  startBlind(0);
+  G.roundScore = 500; G.target = 100;
+  await api.winRound();
+  assert(G.state === "roundwon" && G._cashout && G._cashout.earn > 0, "结算屏数据就绪");
+  newGameState(1);
+  assert(loadGame() === true && G.state === "roundwon" && G._cashout.earn > 0, "结算屏刷新后恢复待收取奖励");
+  const cashMoney = G.money;
+  elements["cashout-btn"].onclick();
+  assert(G.money > cashMoney && G.state === "shop" && G.blindIndex === 1, "恢复后收取进商店");
+  localStorage.removeItem("joker_save_v1");
+  // 计分动画中刷新 → 自动重放同一手（防"看结果悔棋"）
+  newGameState(891);
+  G.boss = BOSSES[0];
+  startBlind(0);
+  G._pendingPlay = G.hand.slice(0, 2).map(c => c.id);
+  saveGame();
+  G._pendingPlay = null;
+  newGameState(1);
+  assert(loadGame() === true && G.state === "playing", "反悔锁档可加载");
+  for (let w = 0; w < 300 && (G.scoring || G.roundScore === 0); w++) await new Promise(r => setTimeout(r, 5));
+  assert(G.handsLeft === 3 && G.roundScore > 0, `重放自动完成: hands=${G.handsLeft} score=${G.roundScore}`);
+  localStorage.removeItem("joker_save_v1");
 
   /* ---------- 种子全局模拟（快进时钟 + 策略机器人，覆盖不同起始牌组） ---------- */
   if (FAST) {

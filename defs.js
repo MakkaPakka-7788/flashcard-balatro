@@ -6,7 +6,7 @@
 "use strict";
 
 /* 版本号：与 sw.js 的 CACHE("joker-" + 版本) 保持一致，由测试强制校验 */
-const GAME_VERSION = "1.4.1";
+const GAME_VERSION = "1.4.2";
 
 /* ---------- 扑克常量 ---------- */
 const SUITS = ["♠", "♥", "♣", "♦"];
@@ -202,15 +202,16 @@ const JOKER_DEFS = [
     name: { zh: "灵巧小丑", en: "Crafty Joker" },
     desc: { zh: "打出同花时 +80 筹码", en: "+80 Chips if hand contains a Flush" },
     after: (s) => isFlushType(s.type) ? { chips: 80 } : null },
-  { id: "jolly", icon: "😆", rarity: "common", cost: 4,
+  /* 500局单卡实验: 快乐 +0.42 偏强 → $5；滑稽 -0.01、古怪 +0.04 偏弱 → 各 $4 */
+  { id: "jolly", icon: "😆", rarity: "common", cost: 5,
     name: { zh: "快乐小丑", en: "Jolly Joker" },
     desc: { zh: "打出的牌含对子时 +8 倍率", en: "+8 Mult if hand contains a Pair" },
     after: (s) => s.hasPair ? { mult: 8 } : null },
-  { id: "zany", icon: "🤪", rarity: "common", cost: 5,
+  { id: "zany", icon: "🤪", rarity: "common", cost: 4,
     name: { zh: "滑稽小丑", en: "Zany Joker" },
     desc: { zh: "打出的牌含三条时 +12 倍率", en: "+12 Mult if hand contains Three of a Kind" },
     after: (s) => s.hasThree ? { mult: 12 } : null },
-  { id: "droll", icon: "🎭", rarity: "common", cost: 5,
+  { id: "droll", icon: "🎭", rarity: "common", cost: 4,
     name: { zh: "古怪小丑", en: "Droll Joker" },
     desc: { zh: "打出同花时 +10 倍率", en: "+10 Mult if hand contains a Flush" },
     after: (s) => isFlushType(s.type) ? { mult: 10 } : null },
@@ -218,11 +219,12 @@ const JOKER_DEFS = [
     name: { zh: "疯狂小丑", en: "Crazy Joker" },
     desc: { zh: "打出顺子时 +12 倍率", en: "+12 Mult if hand contains a Straight" },
     after: (s) => s.type === "straight" || s.type === "straight_flush" ? { mult: 12 } : null },
-  { id: "half", icon: "🌓", rarity: "common", cost: 5,
+  /* 500局单卡实验: 半张 +0.37、旗帜 +0.49，均高于普通卡替换基准(+0.21) → 各提 $1 */
+  { id: "half", icon: "🌓", rarity: "common", cost: 6,
     name: { zh: "半张小丑", en: "Half Joker" },
     desc: { zh: "打出 ≤3 张牌时 +20 倍率", en: "+20 Mult if played hand has ≤3 cards" },
     after: (s) => s.playedCount <= 3 ? { mult: 20 } : null },
-  { id: "banner", icon: "🚩", rarity: "common", cost: 5,
+  { id: "banner", icon: "🚩", rarity: "common", cost: 6,
     name: { zh: "旗帜", en: "Banner" },
     desc: { zh: "每剩余 1 次弃牌 +30 筹码", en: "+30 Chips per remaining discard" },
     after: (s, g) => g.discardsLeft > 0 ? { chips: 30 * g.discardsLeft } : null },
@@ -230,7 +232,8 @@ const JOKER_DEFS = [
     name: { zh: "神秘峰会", en: "Mystic Summit" },
     desc: { zh: "弃牌次数为 0 时 +15 倍率", en: "+15 Mult when 0 discards remain" },
     after: (s, g) => g.discardsLeft === 0 ? { mult: 15 } : null },
-  { id: "fibonacci", icon: "🐚", rarity: "uncommon", cost: 8,
+  /* 500局单卡实验: 边际增益 +0.72，居罕见卡首位 → $8 提到 $9 */
+  { id: "fibonacci", icon: "🐚", rarity: "uncommon", cost: 9,
     name: { zh: "斐波那契", en: "Fibonacci" },
     desc: { zh: "打出的每张 A/2/3/5/8 +8 倍率", en: "Each played A/2/3/5/8 gives +8 Mult" },
     perCard: (c) => ["A", "2", "3", "5", "8"].includes(c.rank) ? { mult: 8 } : null },
@@ -261,12 +264,13 @@ const JOKER_DEFS = [
     desc: { zh: "×3 倍率，回合结束有 1/6 概率被吃掉", en: "×3 Mult, 1 in 6 chance to be eaten at end of round" },
     after: () => ({ xmult: 3 }),
     roundEnd: (g, j) => { if (rng() < 1 / 6) return "destroy"; } },
-  { id: "photograph", icon: "📷", rarity: "common", cost: 5,
+  /* 500局单卡实验: 边际增益 +0.09，低于普通卡替换基准(+0.21) → $5 降到 $4 */
+  { id: "photograph", icon: "📷", rarity: "common", cost: 4,
     name: { zh: "照片", en: "Photograph" },
     desc: { zh: "打出的第一张人头牌 ×2 倍率", en: "First played face card gives ×2 Mult" },
     perCard: (c, s) => (["J", "Q", "K"].includes(c.rank) && s.firstFace === c) ? { xmult: 2 } : null },
-  /* 单卡受控实验（40局×51组）:边际增益 +0.85 底注居 common 之首，$4 明显低估 → $6 */
-  { id: "abstract", icon: "🎨", rarity: "common", cost: 6,
+  /* 500局单卡实验: 边际增益 +0.78，居普通卡第二 → $6 提到 $7 */
+  { id: "abstract", icon: "🎨", rarity: "common", cost: 7,
     name: { zh: "抽象小丑", en: "Abstract Joker" },
     desc: { zh: "每持有 1 张小丑牌 +3 倍率", en: "+3 Mult per Joker owned" },
     after: (s, g) => ({ mult: 3 * g.jokers.length }) },
@@ -278,12 +282,12 @@ const JOKER_DEFS = [
     name: { zh: "自力更生", en: "Bootstraps" },
     desc: { zh: "每持有 $5 +2 倍率", en: "+2 Mult per $5 owned" },
     after: (s, g) => Math.floor(g.money / 5) > 0 ? { mult: 2 * Math.floor(g.money / 5) } : null },
-  /* 单卡实验边际增益 +0.93，与 $8 的斐波那契同档 → $6 提到 $7 */
-  { id: "golden", icon: "🪙", rarity: "common", cost: 7,
+  /* 500局单卡实验: 黄金 +0.63、超新星 +0.56，均明显偏强 → 各提 $1 */
+  { id: "golden", icon: "🪙", rarity: "common", cost: 8,
     name: { zh: "黄金小丑", en: "Golden Joker" },
     desc: { zh: "回合结束时获得 $4", en: "Earn $4 at end of round" },
     money: () => 4 },
-  { id: "supernova", icon: "💥", rarity: "uncommon", cost: 6,
+  { id: "supernova", icon: "💥", rarity: "uncommon", cost: 7,
     name: { zh: "超新星", en: "Supernova" },
     desc: { zh: "本局该牌型之前每打出过 1 次 +1 倍率", en: "+1 Mult per time this hand type was previously played" },
     after: (s, g) => {
@@ -303,7 +307,8 @@ const JOKER_DEFS = [
     name: { zh: "三重奏", en: "The Trio" },
     desc: { zh: "打出的牌含三条时 ×3 倍率", en: "×3 Mult if hand contains Three of a Kind" },
     after: (s) => s.hasThree ? { xmult: 3 } : null },
-  { id: "canio", icon: "🎪", rarity: "legendary", cost: 15,
+  /* 500局单卡实验: 边际增益 +1.16 居全卡第一 → 保守从 $15 提到 $16 */
+  { id: "canio", icon: "🎪", rarity: "legendary", cost: 16,
     name: { zh: "卡尼奥", en: "Canio" },
     desc: { zh: "×1 倍率，每弃掉一张人头牌永久 +0.5", en: "×1 Mult, gains +0.5 permanently per discarded face card" },
     after: (s, g, j) => ({ xmult: 1 + (j.state || 0) }),
@@ -349,8 +354,8 @@ const JOKER_DEFS = [
     retrigger: (c, s, g) => g.handsLeft === 0 ? 1 : 0 },
 
   /* --- 成长类: onPlay(ctx, g, j) 在每手结算后调用，可返回 "destroy" --- */
-  /* 300局单卡实验: 边际增益 +0.78,高出替换基准(+0.21) 0.57 → $4 提到 $6 */
-  { id: "green_joker", icon: "🥒", rarity: "common", cost: 6,
+  /* 500局单卡实验: 边际增益 +0.79 居普通卡第一 → $6 提到 $7 */
+  { id: "green_joker", icon: "🥒", rarity: "common", cost: 7,
     name: { zh: "绿色小丑", en: "Green Joker" },
     desc: { zh: "每出一手牌 +1 倍率，每弃一次牌 -1 倍率", en: "+1 Mult per hand played, -1 Mult per discard" },
     stateText: j => `+${j.state || 0} ${S("mult_word")}`,
@@ -410,7 +415,8 @@ const JOKER_DEFS = [
     name: { zh: "射月", en: "Shoot the Moon" },
     desc: { zh: "手中持有的每张 Q +13 倍率", en: "Each Queen held in hand gives +13 Mult" },
     heldCard: c => c.rank === "Q" ? { mult: 13 } : null },
-  { id: "raised_fist", icon: "✊", rarity: "common", cost: 4,
+  /* 500局单卡实验: 边际增益 +0.39，显著高于普通卡替换基准(+0.21) → $4 提到 $5 */
+  { id: "raised_fist", icon: "✊", rarity: "common", cost: 5,
     name: { zh: "高举拳头", en: "Raised Fist" },
     desc: { zh: "手中最小点数牌的点数 ×2 加到倍率", en: "Adds double the rank of your lowest held card to Mult" },
     after: (s, g) => {

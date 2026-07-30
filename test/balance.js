@@ -140,7 +140,7 @@ function summarize(rs, label = "") {
       const rs = await runTasks(mkTasks(RUNS, { bot }));
       summarize(rs, `机器人 ${bot}`);
     }
-    console.log("\n机器人难度带（校准值）: novice 0-3% < standard 2-8% < expert 4-12%；真人上限远高于 expert");
+    console.log("\n机器人校准中心（标准模式同种子样本）: novice ~1% < standard ~36% < expert ~42%；小样本请以 Wilson 区间为准");
   }
 
   else if (MODE === "compare") {

@@ -615,6 +615,51 @@ skipPack();
 assert(!G.pendingPack, "放弃卡包清空");
 G.jokers = [];
 
+/* ---------- 策略机器人：真实计分择优 / 弃牌展望 / 卡包择优 ---------- */
+const strategyBot = makeBot(api, "expert");
+newGameState(1901);
+G.currentBoss = null;
+G.hand = [
+  c("2", "♠"), c("3", "♥"), c("4", "♦"), c("5", "♣"), c("6", "♠"),
+  c("A", "♥"), c("A", "♦"), c("K", "♣"),
+];
+let botPick = strategyBot.bestSelection(G.hand, false);
+assert(evaluate(botPick).type === "straight", "机器人按真实得分选择顺子而非先遇到的对子");
+
+G.jokers = [{ id: "baron", uid: "bot-baron" }];
+G.hand = [c("Q", "♠"), c("Q", "♥"), c("K", "♠"), c("K", "♥"), c("2", "♣")];
+botPick = strategyBot.bestSelection(G.hand, false);
+assert(botPick.length === 2 && botPick.every(x => x.rank === "Q"), "机器人会把 K 留手触发男爵");
+
+G.jokers = [];
+G.currentBoss = BOSSES.find(b => b.id === "mark");
+G.hand = [c("J", "♠"), c("J", "♥"), c("9", "♣"), c("9", "♦"), c("2", "♠")];
+botPick = strategyBot.bestSelection(G.hand, false);
+assert(botPick.every(x => x.rank !== "J"), "机器人避开 Boss 禁用的人头牌");
+
+G.currentBoss = null;
+G.target = 10000; G.roundScore = 0; G.discardsLeft = 3; G.curHandSize = 8;
+G.hand = [
+  c("2", "♥"), c("5", "♥"), c("8", "♥"), c("J", "♥"),
+  c("3", "♠"), c("7", "♣"), c("10", "♦"), c("K", "♠"),
+];
+G.deck = ["3", "4", "6", "7", "9", "10", "Q", "K"].map((rank, i) =>
+  ({ rank, suit: "♥", id: "bot-draw-" + i }));
+seedRNG(1902);
+const rngExpected = rng();
+seedRNG(1902);
+const botThrow = strategyBot.bestDiscard(G.hand, false);
+const rngActual = rng();
+assert(botThrow?.length && botThrow.every(x => x.suit !== "♥"), "机器人弃掉杂色牌追同花");
+assert(rngActual === rngExpected, "机器人展望不消耗游戏 RNG");
+
+G.pendingPack = { kind: "celestial", choices: ["pluto", "jupiter", "mars"] };
+G.handPlayCounts = { flush: 8, high_card: 1 };
+assert(strategyBot.packChoiceIndex() === 1, "机器人星球包升级常用牌型");
+G.pendingPack = { kind: "arcana", choices: ["sun", "judgement", "devil"] };
+assert(strategyBot.packChoiceIndex() === 1, "机器人塔罗包优先永久出牌升级");
+G.pendingPack = null;
+
 /* ---------- 跨局统计 / 图鉴 / 历史 ---------- */
 localStorage.removeItem("joker_stats_v1");
 markJokersSeen(["joker", "banner"]);

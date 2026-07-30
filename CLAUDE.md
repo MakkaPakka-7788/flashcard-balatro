@@ -28,7 +28,7 @@ main.js   → 事件绑定 / 键盘 / PWA 注册 / 启动（必须最后）
 ## 测试（三层）
 
 ```bash
-node test/test.js          # 全量回归（~415 断言 + 3 局整局模拟，约 1 分钟）
+node test/test.js          # 全量回归（~422 断言 + 3 局整局模拟，约 1 分钟）
 node test/test.js --fast   # 秒级：快进时钟 + 跳过整局模拟（日常迭代用，提交前跑全量）
 python3 test/e2e.py        # 浏览器 E2E 23 项（需 playwright + chromium-headless-shell；macOS 上用 python3.13；可用 PW_CHROMIUM 指定系统浏览器）
 ```
@@ -50,7 +50,7 @@ node test/balance.js jokers --runs=300              # 单卡边际底注增益�
 node test/balance.js check [--update]               # 基线守护（test/balance-baseline.json）
 ```
 
-已知校准点：白板小丑增益 +0.21 是"占槽替换基准"；机器人盲区（expert 已会付费刷新/四指打4张同花/蓝图排位，仍无构筑协同、不打跳点顺子），抄近路、男爵、飞溅、三张重触发卡的单卡数据仍失真，**不要据此调价**；闪卡/四指/蓝图待重跑 `jokers` 实验后再评估。难度阶梯：快速 ~10% > 标准 ~3% > Boss Rush ~1.7%（standard 机器人胜率）。
+已知校准点：机器人现已穷举真实计分（含 Boss、持有触发、规则改写）、对未知牌堆做不消耗 RNG 的弃牌抽样，并按构筑选择商店/卡包；仍不做跨回合牌库概率规划，也不评估跳盲标签的长期价值。2026-07 的标准模式同种子样本：novice ~1%、standard ~34-36%、expert ~42%（100-150 局，具体看 Wilson 区间）。机器人策略升级后旧版单卡边际增益不可直接比较，调价前需重跑 `jokers` 实验。
 
 ## 其他约定
 

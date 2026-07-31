@@ -190,6 +190,14 @@ function summarize(rs, label = "") {
 
   else if (MODE === "check") {
     const rs = await runTasks(mkTasks(RUNS));
+    // 软锁守护：机器人以 stuck:* 收场 = 状态机无法推进，是回归的强信号。
+    // 不能靠容差带兜底——少量软锁只会把胜率拉低几个百分点，仍在带内绿灯通过。
+    const stuck = rs.filter(r => String(r.result).startsWith("stuck"));
+    if (stuck.length) {
+      console.error(`\n✗ ${stuck.length}/${rs.length} 局机器人软锁（状态机停摆）:`);
+      stuck.slice(0, 10).forEach(r => console.error(`  seed=${r.seed} deck=${r.deck} → ${r.result}`));
+      process.exit(1);
+    }
     const s = summarize(rs, "基线检查");
     const basePath = path.join(__dirname, "balance-baseline.json");
     const current = {

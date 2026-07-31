@@ -39,7 +39,7 @@ function showBlindSelect() {
     el.innerHTML = `
       <div class="bo-name ${m.cls}" style="background:${["#006bb8", "#d07f1d", "#7a1fa0"][i]}">${isBoss ? (rush ? "👹 ???" : G.boss.icon + " " + L(G.boss.name)) : L(m.name)}</div>
       <div class="bo-chip">${rush ? "👹" : isBoss ? G.boss.icon : (i === 0 ? "🔵" : "🟠")}</div>
-      <div class="bo-target">${fmt(blindTarget(i))}</div>
+      <div class="bo-target">${rush && isBoss ? "???" : fmt(blindTarget(i))}</div>
       <div class="bo-reward">${S("reward_word")} ${"$".repeat(blindReward(i))}</div>
       <div class="bo-effect">${rush ? S("bossrush_hint") : isBoss ? L(G.boss.desc) : ""}</div>
       ${i < G.blindIndex
@@ -143,6 +143,8 @@ async function playHand() {
   G._pendingPlay = cards.map(c => c.id);
   saveGame();
   G._pendingPlay = null;
+  // 局代际快照：动画期间若开了新局（深链/重新开局/读档重放被打断），每个 await 后立即退出
+  const run = G.runId;
   G.scoring = true;
   G.speed = 1;
   G.handsLeft--;
@@ -165,6 +167,7 @@ async function playHand() {
   }
   renderHand(); renderStats(); renderPreview();
   await sleep(350);
+  if (run !== G.runId) return;
 
   // 计分（纯函数），出牌次数先入账（超新星语义：不含本次）
   const ev0 = evaluate(cards);
@@ -190,6 +193,7 @@ async function playHand() {
     // 按步骤播放动画
     let curEl = null, chipIdx = 0;
     for (const step of sc.steps) {
+      if (run !== G.runId) return;
       if (step.kind === "card") {
         if (curEl) { curEl.classList.remove("scoring"); curEl.classList.add("scored"); }
         curEl = cardEls.get(step.card.id) || null;
@@ -237,6 +241,7 @@ async function playHand() {
     }
     await countUp(G.roundScore, G.roundScore + sc.total, 600);
   }
+  if (run !== G.runId) return;
   G.roundScore += sc.total;
 
   // 成长类小丑钩子（绿色小丑 / 坐公交 / 冰淇淋…），可返回 "destroy"
@@ -250,6 +255,7 @@ async function playHand() {
     G.jokers = G.jokers.filter(x => x !== j);
   }
   await sleep(500);
+  if (run !== G.runId) return;
 
   // 清理出牌区
   playArea.innerHTML = "";
@@ -288,8 +294,9 @@ async function playHand() {
   render();
 
   } finally {
-    G.scoring = false;   // 正常路径已复位，这里兜异常路径：保证玩家不被永久锁输入
-    G.speed = 1;
+    // 正常路径已复位，这里兜异常路径：保证玩家不被永久锁输入。
+    // 换局后（run 过期）不碰新局的标志位——新局可能正在计分。
+    if (run === G.runId) { G.scoring = false; G.speed = 1; }
   }
 }
 
@@ -464,12 +471,14 @@ function confetti(count = 80) {
 
 /* ---------- 回合胜利 / 商店 ---------- */
 async function winRound() {
+  const run = G.runId;   // 局代际：600ms 结算延迟中开新局则本协程作废
   G.state = "roundwon";
   if (G.blindIndex === 2 && !(G.roundDiscards > 0)) awardAchievement("iron_hand");
   AudioFX.win();
   confetti(G.blindIndex === 2 ? 140 : 70);
   render();
   await sleep(600);
+  if (run !== G.runId) return;
   const m = BLIND_META[G.blindIndex];
   const reward = blindReward(G.blindIndex);
   const lines = [];
@@ -635,7 +644,10 @@ function renderShop() {
     buyBtn.textContent = item.sold ? S("sold_out") : S("buy_btn");
     buyBtn.disabled = item.sold || G.money < price ||
       (item.kind === "joker" && G.jokers.length >= G.maxJokers) ||
-      ((item.kind === "tarot" || item.kind === "spectral") && G.consumables.length >= G.maxConsumables);
+      ((item.kind === "tarot" || item.kind === "spectral") && G.consumables.length >= G.maxConsumables) ||
+      // 槽满时对应卡包也禁购：3 选 1 全是 "full" 的死端购买（弹层挡住卖卡腾位，只能白花钱放弃）
+      (item.kind === "pack" && item.def.kind === "buffoon" && G.jokers.length >= G.maxJokers) ||
+      (item.kind === "pack" && item.def.kind === "arcana" && G.consumables.length >= G.maxConsumables);
     buyBtn.onclick = () => buyItem(item, price);
     wrap.append(priceEl, cardEl, buyBtn);
     box.appendChild(wrap);
@@ -676,6 +688,9 @@ function renderShop() {
 function buyItem(item, price) {
   if (G.money < price || item.sold) return;
   if ((item.kind === "tarot" || item.kind === "spectral") && G.consumables.length >= G.maxConsumables) return;
+  // 与 renderShop 的禁用一致：槽满时对应卡包拒绝购买（键盘购买等旁路的纵深防御）
+  if (item.kind === "pack" && ((item.def.kind === "buffoon" && G.jokers.length >= G.maxJokers) ||
+    (item.def.kind === "arcana" && G.consumables.length >= G.maxConsumables))) return;
   G.money -= price;
   item.sold = true;
   AudioFX.buy();
@@ -771,6 +786,7 @@ function sellJoker(j) {
 
 /* ---------- 小丑牌排序 ---------- */
 function moveJoker(j, dir) {
+  if (G.scoring) return;   // 与卖出/用消耗品一致：计分动画中禁止（存档保护见 saveGame）
   const i = G.jokers.indexOf(j);
   const t = i + dir;
   if (i < 0 || t < 0 || t >= G.jokers.length) return;

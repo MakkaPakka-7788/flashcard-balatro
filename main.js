@@ -118,7 +118,13 @@ $("seed-line").onclick = () => {
   const t = v.trim();
   showDeckSelect(/^\d+$/.test(t) ? parseInt(t, 10) : hashStr(t));
 };
-$("deck-cancel-btn").onclick = () => $("deck-select").classList.add("hidden");
+/* 关闭牌组选择：从结算屏（再来一局）进来后取消时恢复结算屏——
+   否则玩家困在无弹层的终局棋盘上，无尽/恢复搁置/分享入口全部失联 */
+function closeDeckSelect() {
+  $("deck-select").classList.add("hidden");
+  if (G.state === "over") $("end-screen").classList.remove("hidden");
+}
+$("deck-cancel-btn").onclick = closeDeckSelect;
 /* BGM 独立开关（M 键静音仍是总开关） */
 const musicBtnText = () => S(AudioFX.musicEnabled() ? "music_btn_on" : "music_btn_off");
 $("music-btn").textContent = musicBtnText();
@@ -229,9 +235,10 @@ document.addEventListener("keydown", e => {
     flashMessage(muted ? S("muted") : S("unmuted"));
     return;
   }
-  // 信息类弹层用 Esc 关闭
+  // 信息类弹层用 Esc 关闭（deck-select 走 closeDeckSelect：终局时要恢复结算屏）
   if (e.key === "Escape") {
-    ["run-info", "deck-view", "collection", "deck-select", "help"].forEach(id => $(id).classList.add("hidden"));
+    ["run-info", "deck-view", "collection", "help"].forEach(id => $(id).classList.add("hidden"));
+    closeDeckSelect();
     if (G.pendingPack) { skipPack(); $("pack-open").classList.add("hidden"); saveGame(); }
     else if (G.state === "playing" && !G.scoring && G.selected.size) { G.selected.clear(); render(); }
     return;

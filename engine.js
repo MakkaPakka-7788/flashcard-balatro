@@ -162,6 +162,10 @@ function saveGame() {
     try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* 隐私模式等场景静默失败 */ }
     return;
   }
+  // 计分动画期间一律跳过写档：此刻落盘会因 !G.scoring 条件丢掉 mid，
+  // 覆盖 playHand 开头写入的反悔锁存档（v7），刷新将回滚整个盲注。
+  // playHand 自己的那次存档发生在 scoring 置位之前且带 _pendingPlay，不受此拦截。
+  if (G.state === "playing" && G.scoring && !G._pendingPlay) return;
   // 持有类成就的集中检查点（saveGame 在每次状态变化后都会调用）
   if (G.money >= 50) awardAchievement("rich");
   if (G.jokers?.some(j => JOKER_BY_ID.get(j.id)?.rarity === "legendary")) awardAchievement("legendary");
@@ -336,6 +340,9 @@ function newGameState(seed) {
   seedRNG(s);
   Object.assign(G, {
     seed: s,
+    /* 局代际：每开一局 +1。async 流程（playHand/winRound）在每个 await 后比对，
+       换局后游离的旧协程立即退出，不再把上局的计分结果写进新局（会破坏同种子承诺） */
+    runId: (G.runId || 0) + 1,
     masterDeck: buildMasterDeck(),
     deck: [], hand: [], selected: new Set(),
     jokers: [], maxJokers: BALANCE.maxJokers,

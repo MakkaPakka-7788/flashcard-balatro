@@ -9,9 +9,9 @@ const FAST = process.argv.includes("--fast");
 const api = compileGame();
 const { G, evaluate, playHand, startBlind, discard, JOKER_DEFS, rollShop, rollEdition, buyItem,
   computeScoring, newGameState, newGame, skipBlind, blindTarget, seedRNG, rng, buildDeck,
-  TAROTS, TAROT_BY_ID, BOSSES, VOUCHERS, EDITIONS, DECKS, HAND_TYPES,
+  TAROTS, TAROT_BY_ID, BOSSES, VOUCHERS, EDITIONS, DECKS, HAND_TYPES, PACKS,
   saveGame, loadGame, useConsumable, pickBoss, openPack, choosePackOption, skipPack, openShop,
-  loadStats, recordGameEnd, markJokersSeen,
+  loadStats, recordGameEnd, markJokersSeen, moveJoker,
   ENH_CHIPS, ENH_MULT, ENH_STEEL_X, S, L } = api;
 
 let pass = 0, fail = 0;
@@ -869,21 +869,76 @@ localStorage.removeItem("joker_save_v1");
   newGameState(555);
   G.boss = BOSSES.find(b => b.id === "psychic");
   startBlind(0);
+  G.target = 1e9;   // 抬高目标：第一手绝不可能直接过关，回合中存读档路径必被覆盖（防静默跳过成 hollow green）
   G.selected.clear();
   G.hand.slice(0, 3).forEach(x => G.selected.add(x.id));
   await playHand();
-  if (G.state === "playing") {
-    saveGame();
-    const snap = { hand: G.hand.map(x => x.rank + x.suit).join(","), handsLeft: G.handsLeft, score: G.roundScore, money: G.money };
-    newGameState(1);
-    assert(loadGame() === true, "读档成功");
-    assert(G.state === "playing", "恢复到回合中");
-    assert(G.hand.map(x => x.rank + x.suit).join(",") === snap.hand, "手牌一致恢复");
-    assert(G.handsLeft === snap.handsLeft && G.roundScore === snap.score && G.money === snap.money, "回合数据一致恢复");
-    assert(G.masterDeck.length === 52, "母牌库随档恢复");
-  } else {
-    console.log("(中途存档用例: 第一手即结束回合，跳过)");
-  }
+  assert(G.state === "playing", "中途存档前置: 出牌后仍在回合中");
+  saveGame();
+  const snap = { hand: G.hand.map(x => x.rank + x.suit).join(","), handsLeft: G.handsLeft, score: G.roundScore, money: G.money };
+  newGameState(1);
+  assert(loadGame() === true, "读档成功");
+  assert(G.state === "playing", "恢复到回合中");
+  assert(G.hand.map(x => x.rank + x.suit).join(",") === snap.hand, "手牌一致恢复");
+  assert(G.handsLeft === snap.handsLeft && G.roundScore === snap.score && G.money === snap.money, "回合数据一致恢复");
+  assert(G.masterDeck.length === 52, "母牌库随档恢复");
+  localStorage.removeItem("joker_save_v1");
+
+  /* ---------- v1.4.3: 计分期间守卫（反悔锁存档保护 / moveJoker / 局代际） ---------- */
+  // saveGame: 计分动画中触发的旁路存档（语言切换等）不得覆盖 playHand 开头的反悔锁档
+  newGameState(556);
+  G.boss = BOSSES[0];
+  startBlind(0);
+  G._pendingPlay = [G.hand[0].id];
+  saveGame();
+  G._pendingPlay = null;
+  const lockSave = localStorage.getItem("joker_save_v1");
+  assert(JSON.parse(lockSave).mid.pendingPlay.length === 1, "反悔锁存档带出牌意图");
+  G.scoring = true;
+  saveGame();
+  assert(localStorage.getItem("joker_save_v1") === lockSave, "计分中 saveGame 跳过写入，反悔锁档不被覆盖");
+  // moveJoker: 与卖出/用消耗品一致，计分中拒绝
+  G.jokers = [{ id: "joker", uid: "jA" }, { id: "greedy", uid: "jB" }];
+  moveJoker(G.jokers[0], 1);
+  assert(G.jokers[0].uid === "jA", "计分中 moveJoker 被拒绝");
+  G.scoring = false;
+  moveJoker(G.jokers[0], 1);
+  assert(G.jokers[0].uid === "jB" && G.jokers[1].uid === "jA", "非计分时 moveJoker 正常换位");
+  localStorage.removeItem("joker_save_v1");
+
+  // 局代际: 计分动画中开新局（深链/重新开局/读档重放被打断），游离 playHand 不得污染新局
+  newGameState(557);
+  G.boss = BOSSES[0];
+  startBlind(0);
+  G.selected.clear();
+  G.hand.slice(0, 2).forEach(x => G.selected.add(x.id));
+  const orphan = playHand();   // 同步前缀执行后悬停在首个 await
+  newGameState(558);           // 动画未结束即开新局 → runId 递增
+  await orphan;
+  assert(G.roundScore === 0 && G.state === "blind-select" && G.scoring === false,
+    "游离 playHand 在新局上无副作用（不加分/不触发 winRound/不动 scoring）");
+  assert(Object.keys(G.handPlayCounts).length === 0, "游离 playHand 不污染新局出牌统计");
+  localStorage.removeItem("joker_save_v1");
+
+  /* ---------- v1.4.3: 槽满时对应卡包禁购（死端购买防护） ---------- */
+  newGameState(559);
+  G.state = "shop"; G.money = 30;
+  G.consumables = [{ id: "hermit", uid: "p1" }, { id: "tower", uid: "p2" }];
+  const arcanaPack = { kind: "pack", def: PACKS.find(p => p.kind === "arcana"), sold: false };
+  buyItem(arcanaPack, 4);
+  assert(G.money === 30 && !arcanaPack.sold && !G.pendingPack, "消耗品槽满: 塔罗包拒绝购买");
+  G.jokers = ["joker", "greedy", "lusty", "wrathful", "gluttonous"].map((id, i) => ({ id, uid: "pk" + i }));
+  const buffoonPack = { kind: "pack", def: PACKS.find(p => p.kind === "buffoon"), sold: false };
+  buyItem(buffoonPack, 6);
+  assert(G.money === 30 && !buffoonPack.sold && !G.pendingPack, "小丑槽满: 小丑包拒绝购买");
+  const celestialPack = { kind: "pack", def: PACKS.find(p => p.kind === "celestial"), sold: false };
+  buyItem(celestialPack, 4);
+  assert(G.money === 26 && celestialPack.sold && G.pendingPack?.kind === "celestial", "星球包不受槽位限制");
+  skipPack();
+  G.consumables = [];
+  buyItem(arcanaPack, 4);
+  assert(G.money === 22 && arcanaPack.sold && G.pendingPack?.kind === "arcana", "槽有空位后塔罗包正常购买");
+  skipPack();
   localStorage.removeItem("joker_save_v1");
 
   /* ---------- 传奇：奇科禁用 Boss（AUDIT_EXEMPT，效果在 activeBossFor） ---------- */

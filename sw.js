@@ -1,7 +1,7 @@
 // @ts-nocheck —— SW 全局(self/skipWaiting)不在 DOM lib 里，本文件跳过类型检查
 /* 小丑牌 · JOKER — Service Worker
    网络优先 + 弱网 3 秒回退缓存：在线拿最新版，弱网/离线秒开。 */
-const CACHE = "joker-1.4.2";
+const CACHE = "joker-1.4.3";
 const ASSETS = [
   "./", "./index.html", "./style.css",
   "./i18n.js", "./defs.js", "./engine.js", "./audio.js", "./ui.js", "./main.js",

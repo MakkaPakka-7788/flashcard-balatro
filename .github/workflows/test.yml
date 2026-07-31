@@ -4,7 +4,9 @@ on: [push, pull_request]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # 只取消 PR 的重复 run；push 的 run 永不取消——CACHE 升级守护依赖每个推送区间
+  # (TEST_BASE_SHA=github.event.before) 都被检查过，取消过的区间不会有后续 run 补查
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   regression:

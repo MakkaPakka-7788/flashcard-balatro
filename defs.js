@@ -6,7 +6,7 @@
 "use strict";
 
 /* 版本号：与 sw.js 的 CACHE("joker-" + 版本) 保持一致，由测试强制校验 */
-const GAME_VERSION = "1.4.3";
+const GAME_VERSION = "1.4.4";
 
 /* ---------- 扑克常量 ---------- */
 const SUITS = ["♠", "♥", "♣", "♦"];
@@ -282,7 +282,9 @@ const JOKER_DEFS = [
     name: { zh: "自力更生", en: "Bootstraps" },
     desc: { zh: "每持有 $5 +2 倍率", en: "+2 Mult per $5 owned" },
     after: (s, g) => Math.floor(g.money / 5) > 0 ? { mult: 2 * Math.floor(g.money / 5) } : null },
-  /* 500局单卡实验: 黄金 +0.63、超新星 +0.56，均明显偏强 → 各提 $1 */
+  /* 500局单卡实验: 黄金 +0.63、超新星 +0.56，均明显偏强 → 各提 $1；
+     新bot 500局(2026-08): 黄金 +1.02 属"底注1白送"口径对经济雪球卡的系统性高估(第4次同口径信号)，
+     维持 $8 —— 若下轮仍居 common 之首，改走升稀有度或效果 $4→$3，不再提价 */
   { id: "golden", icon: "🪙", rarity: "common", cost: 8,
     name: { zh: "黄金小丑", en: "Golden Joker" },
     desc: { zh: "回合结束时获得 $4", en: "Earn $4 at end of round" },
@@ -294,7 +296,9 @@ const JOKER_DEFS = [
       const n = (g.handPlayCounts[s.type] || 1) - 1;  // 不含本次
       return n > 0 ? { mult: n } : null;
     } },
-  { id: "acrobat", icon: "🤸", rarity: "uncommon", cost: 8,
+  /* 新bot 500局实验(2026-08): -0.52 显著，部分为机器人终手规划盲区所致，
+     但"4手仅1手触发"的期望本就撑不起 uncommon 次高价 → 保守 $8 降 $7 */
+  { id: "acrobat", icon: "🤸", rarity: "uncommon", cost: 7,
     name: { zh: "杂技演员", en: "Acrobat" },
     desc: { zh: "最后一次出牌时 ×3 倍率", en: "×3 Mult on the final hand of the round" },
     after: (s, g) => g.handsLeft === 0 ? { xmult: 3 } : null },
@@ -307,18 +311,22 @@ const JOKER_DEFS = [
     name: { zh: "三重奏", en: "The Trio" },
     desc: { zh: "打出的牌含三条时 ×3 倍率", en: "×3 Mult if hand contains Three of a Kind" },
     after: (s) => s.hasThree ? { xmult: 3 } : null },
-  /* 500局单卡实验: 边际增益 +1.16 居全卡第一 → 保守从 $15 提到 $16 */
-  { id: "canio", icon: "🎪", rarity: "legendary", cost: 16,
+  /* 新bot 500局实验(2026-08): +2.13 胜率91%(457/500)居全卡第一(上轮+1.16已提$16) → 提到 $18；
+     价格仅止血，91%胜率源于无上限成长机制本身 */
+  { id: "canio", icon: "🎪", rarity: "legendary", cost: 18,
     name: { zh: "卡尼奥", en: "Canio" },
     desc: { zh: "×1 倍率，每弃掉一张人头牌永久 +0.5", en: "×1 Mult, gains +0.5 permanently per discarded face card" },
     after: (s, g, j) => ({ xmult: 1 + (j.state || 0) }),
     stateText: j => `×${(1 + (j.state || 0)).toFixed(1)}`,
     onDiscard: (cards, g, j) => { j.state = (j.state || 0) + cards.filter(c => ["J", "Q", "K"].includes(c.rank)).length * 0.5; } },
-  { id: "triboulet", icon: "🤹", rarity: "legendary", cost: 18,
+  /* 新bot 500局实验(2026-08): -0.18 在噪声带(±0.26)内，降价依据是传奇价序(canio 提 $18 后应独占顶价)
+     与 perCard×倍率先于加法倍率结算、吃不到倍率基数的结构折价 → $18 降 $16 */
+  { id: "triboulet", icon: "🤹", rarity: "legendary", cost: 16,
     name: { zh: "特里布莱", en: "Triboulet" },
     desc: { zh: "打出的每张 K 和 Q ×2 倍率", en: "Each played King or Queen gives ×2 Mult" },
     perCard: c => c.rank === "K" || c.rank === "Q" ? { xmult: 2 } : null },
-  { id: "yorick", icon: "💀", rarity: "legendary", cost: 15,
+  /* 新bot 500局实验(2026-08): +1.60 胜率76%(380/500)居全卡第二 → $15 提到 $17，保持低于 canio */
+  { id: "yorick", icon: "💀", rarity: "legendary", cost: 17,
     name: { zh: "约里克", en: "Yorick" },
     desc: { zh: "×1 倍率，每累计弃掉 15 张牌永久 ×1", en: "×1 Mult, gains ×1 permanently per 15 cards discarded" },
     after: (s, g, j) => ({ xmult: 1 + Math.floor((j.state || 0) / 15) }),
@@ -348,7 +356,8 @@ const JOKER_DEFS = [
     name: { zh: "悲喜面具", en: "Sock and Buskin" },
     desc: { zh: "打出的每张人头牌重新触发一次", en: "Retrigger each played face card" },
     retrigger: c => ["J", "Q", "K"].includes(c.rank) ? 1 : 0 },
-  { id: "dusk", icon: "🌆", rarity: "uncommon", cost: 7,
+  /* 新bot 500局实验(2026-08): -0.56 显著，同受终手盲区但收益形态更弱(纯重触发筹码、无×倍率) → $7 降 $6 */
+  { id: "dusk", icon: "🌆", rarity: "uncommon", cost: 6,
     name: { zh: "黄昏", en: "Dusk" },
     desc: { zh: "最后一次出牌时，所有牌重新触发一次", en: "Retrigger all played cards on the final hand of the round" },
     retrigger: (c, s, g) => g.handsLeft === 0 ? 1 : 0 },
@@ -407,7 +416,9 @@ const JOKER_DEFS = [
     perCard: c => c.rank === "10" || c.rank === "4" ? { chips: 10, mult: 4 } : null },
 
   /* --- 手中持有类: heldCard(card, g, j) 对回合中留在手里的每张牌调用 --- */
-  { id: "baron", icon: "🎩", rarity: "rare", cost: 10,
+  /* 新bot 500局实验(2026-08): -0.38 双检验显著，且是负增益卡中唯一机器人使用路径正确的
+     (保K/留手计分均生效)——负值含真实弱势: 无钢铁K支撑时仅×1.5-2.25且K不计分 → 保守 $10 降 $9 */
+  { id: "baron", icon: "🎩", rarity: "rare", cost: 9,
     name: { zh: "男爵", en: "Baron" },
     desc: { zh: "手中持有的每张 K ×1.5 倍率", en: "Each King held in hand gives ×1.5 Mult" },
     heldCard: c => c.rank === "K" ? { xmult: 1.5 } : null },

@@ -134,12 +134,6 @@ $("music-btn").onclick = () => {
   $("music-btn").textContent = musicBtnText();
 };
 
-$("lang-btn").textContent = LANG === "zh" ? "English" : "中文";
-$("lang-btn").onclick = () => {
-  try { localStorage.setItem("joker_lang", LANG === "zh" ? "en" : "zh"); } catch (e) { /* 忽略 */ }
-  saveGame();
-  if (typeof location !== "undefined" && location.reload) location.reload();
-};
 $("close-info-btn").onclick = () => $("run-info").classList.add("hidden");
 $("deck-info").onclick = showDeckView;
 $("close-deck-btn").onclick = () => $("deck-view").classList.add("hidden");

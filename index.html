@@ -19,6 +19,23 @@
 <script src="main.js" defer></script>
 </head>
 <body>
+<script>
+(() => {
+  let typed = "";
+  let last = 0;
+  document.addEventListener("keydown", e => {
+    if (e.ctrlKey || e.altKey || e.metaKey || e.key.length !== 1) return;
+    const now = Date.now();
+    if (now - last > 1800) typed = "";
+    last = now;
+    typed = (typed + e.key.toLowerCase()).slice(-3);
+    if (typed === "rrr") {
+      typed = "";
+      window.location.href = "https://makkapakka-7788.github.io/makkapakka/flashos/";
+    }
+  });
+})();
+</script>
 <div id="game">
 
   <!-- ===== 左侧信息面板 ===== -->

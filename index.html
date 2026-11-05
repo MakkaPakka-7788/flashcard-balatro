@@ -1,15 +1,16 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>小丑牌 · JOKER</title>
+<title>JOKER — a Balatro-like</title>
 <meta name="theme-color" content="#0a1a16">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="stylesheet" href="style.css">
 <!-- defer: 并行下载、按序执行，首屏更快；加载顺序约定见 CLAUDE.md -->
+<script>try { localStorage.setItem("joker_lang", "en"); } catch (e) {}</script>
 <script src="i18n.js" defer></script>
 <script src="defs.js" defer></script>
 <script src="engine.js" defer></script>
@@ -82,7 +83,6 @@
     <button class="small-btn" id="daily-btn" data-i18n="daily_btn">今日挑战</button>
     <button class="small-btn" id="weekly-btn" data-i18n="weekly_btn">每周挑战</button>
     <button class="small-btn" id="music-btn">🎵</button>
-    <button class="small-btn" id="lang-btn">English</button>
     <div class="hotkeys seed-line" id="seed-line" title="点击输入自定义种子">种子 -</div>
     <div class="hotkeys" data-i18n="hotkeys">快捷键: 1-9选牌 · Enter出牌 · X弃牌 · R/S排序 · M静音 · 计分中点击加速</div>
     <div class="hotkeys" id="version-line"></div>

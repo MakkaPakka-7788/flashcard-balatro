@@ -1,49 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
-<head><script id="flashcard-startup-gate">
-(function(){
-  function init(){
-    var form=document.getElementById("flashcard-repo-lock-form");
-    var overlay=document.getElementById("flashcard-repo-lock");
-    if(!form||!overlay)return;
-    var input=document.getElementById("flashcard-repo-lock-input");
-    var error=document.getElementById("flashcard-repo-lock-error");
-    form.addEventListener("submit",function(e){
-      e.preventDefault();
-      if(input.value!=="pness"){error.textContent="Incorrect password. Try again.";input.select();return;}
-      form.querySelectorAll("input,button").forEach(function(el){el.disabled=true;});
-      error.textContent="UNLOCKING...";
-      var blocked=Array.from(document.querySelectorAll('script[type="application/x-flashcard-locked"]'));
-      overlay.remove();
-      (async function(){
-        for(var old of blocked){
-          var s=document.createElement("script");
-          Array.from(old.attributes).forEach(function(a){
-            if(a.name==="type"||a.name==="data-flashcard-type"||a.name==="data-flashcard-async"||a.name==="data-flashcard-defer")return;
-            s.setAttribute(a.name,a.value);
-          });
-          var originalType=old.getAttribute("data-flashcard-type");
-          if(originalType)s.type=originalType;
-          if(old.hasAttribute("data-flashcard-async"))s.async=true;else s.async=false;
-          if(old.hasAttribute("data-flashcard-defer"))s.defer=true;
-          if(old.src){
-            await new Promise(function(resolve){
-              s.onload=resolve;s.onerror=resolve;
-              (document.body||document.head).appendChild(s);
-            });
-          }else{
-            s.textContent=old.textContent;
-            (document.body||document.head).appendChild(s);
-          }
-          old.remove();
-        }
-      })();
-    });
-    input.focus();
-  }
-  if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",init,{once:true});else init();
-})();
-</script>
+<head><script id="flashcard-startup-gate">(function(){function init(){var form=document.getElementById("flashcard-repo-lock-form"),overlay=document.getElementById("flashcard-repo-lock");if(!form||!overlay)return;var input=document.getElementById("flashcard-repo-lock-input"),error=document.getElementById("flashcard-repo-lock-error");form.addEventListener("submit",function(e){e.preventDefault();if(input.value!=="pness"){error.textContent="Incorrect password. Try again.";input.select();return;}var blocked=Array.from(document.querySelectorAll('script[type="application/x-flashcard-locked"]'));overlay.remove();(async function(){for(var old of blocked){var s=document.createElement("script");Array.from(old.attributes).forEach(function(a){if(["type","data-flashcard-type","data-flashcard-async","data-flashcard-defer"].includes(a.name))return;s.setAttribute(a.name,a.value);});var t=old.getAttribute("data-flashcard-type");if(t)s.type=t;s.async=old.hasAttribute("data-flashcard-async");if(old.hasAttribute("data-flashcard-defer"))s.defer=true;if(old.src){await new Promise(function(resolve){s.onload=resolve;s.onerror=resolve;(document.body||document.head).appendChild(s);});}else{s.textContent=old.textContent;(document.body||document.head).appendChild(s);}old.remove();}})();});input.focus();}if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",init,{once:true});else init();})();</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>JOKER — a Balatro-like</title>
@@ -53,5 +10,257 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="stylesheet" href="style.css">
 <!-- defer: 并行下载、按序执行，首屏更快；加载顺序约定见 CLAUDE.md -->
-</body>
+<script type="application/x-flashcard-locked" data-flashcard-type="">try { localStorage.setItem("joker_lang", "en"); } catch (e) {}</script>
+<script type="application/x-flashcard-locked" data-flashcard-type="" data-flashcard-defer="1" src="i18n.js"></script>
+<script type="application/x-flashcard-locked" data-flashcard-type="" data-flashcard-defer="1" src="defs.js"></script>
+<script type="application/x-flashcard-locked" data-flashcard-type="" data-flashcard-defer="1" src="engine.js"></script>
+<script type="application/x-flashcard-locked" data-flashcard-type="" data-flashcard-defer="1" src="audio.js"></script>
+<script type="application/x-flashcard-locked" data-flashcard-type="" data-flashcard-defer="1" src="ui.js"></script>
+<script type="application/x-flashcard-locked" data-flashcard-type="" data-flashcard-defer="1" src="main.js"></script>
+<style id="flashcard-repo-lock-style">#flashcard-repo-lock{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:20px;background:#080808;color:#eee;font-family:"Courier New",monospace}#flashcard-repo-lock .lock-card{width:min(390px,100%);padding:30px;background:#101010;border:2px solid #555;text-align:center}#flashcard-repo-lock input{width:100%;margin:14px 0;padding:13px;background:#080808;border:1px solid #555;color:#eee;font:inherit}#flashcard-repo-lock button{width:100%;padding:12px;background:#eee;border:0;color:#111;font:bold 14px "Courier New",monospace}#flashcard-repo-lock p{color:#999;font-size:13px}#flashcard-repo-lock-error{color:#ff7777!important;min-height:18px}</style></head>
+<body><div id="flashcard-repo-lock"><form class="lock-card" id="flashcard-repo-lock-form"><h1>PASSWORD REQUIRED</h1><p>Enter the password to access this game.</p><input id="flashcard-repo-lock-input" type="password" placeholder="Enter password" autocomplete="off" required><p id="flashcard-repo-lock-error" aria-live="polite"></p><button type="submit">UNLOCK GAME</button></form></div>
+<script type="application/x-flashcard-locked" data-flashcard-type="">
+(() => {
+  let typed = "";
+  let last = 0;
+  document.addEventListener("keydown", e => {
+    if (e.ctrlKey || e.altKey || e.metaKey || e.key.length !== 1) return;
+    const now = Date.now();
+    if (now - last > 1800) typed = "";
+    last = now;
+    typed = (typed + e.key.toLowerCase()).slice(-3);
+    if (typed === "rrr") {
+      typed = "";
+      window.location.href = "https://makkapakka-7788.github.io/makkapakka/flashos/";
+    }
+  });
+})();
+</script>
+<div id="game">
+
+  <!-- ===== 左侧信息面板 ===== -->
+  <aside id="sidebar">
+    <div class="panel blind-panel" id="blind-panel">
+      <div class="blind-name" id="blind-name">小盲注</div>
+      <div class="blind-body">
+        <div class="blind-chip" id="blind-chip"></div>
+        <div class="blind-info">
+          <div class="blind-target-label" data-i18n="target_label">目标分数</div>
+          <div class="blind-target" id="blind-target">100</div>
+          <div class="blind-reward" id="blind-reward"></div>
+        </div>
+      </div>
+      <div class="blind-effect hidden" id="blind-effect"></div>
+    </div>
+
+    <div class="panel score-panel">
+      <div class="score-label" data-i18n="round_score_label">回合分数</div>
+      <div class="round-score" id="round-score">0</div>
+    </div>
+
+    <div class="panel hand-panel">
+      <div class="hand-name" id="hand-name">&nbsp;</div>
+      <div class="calc">
+        <div class="chips-box" id="chips-box">0</div>
+        <div class="times">×</div>
+        <div class="mult-box" id="mult-box">0</div>
+      </div>
+    </div>
+
+    <div class="stats-row">
+      <div class="panel stat">
+        <div class="stat-label" data-i18n="hands_label">出牌</div>
+        <div class="stat-value blue" id="hands-left">4</div>
+      </div>
+      <div class="panel stat">
+        <div class="stat-label" data-i18n="discards_label">弃牌</div>
+        <div class="stat-value red" id="discards-left">3</div>
+      </div>
+    </div>
+
+    <div class="panel money-panel">
+      <div class="money" id="money">$4</div>
+    </div>
+
+    <div class="stats-row">
+      <div class="panel stat">
+        <div class="stat-label" data-i18n="ante_label">底注</div>
+        <div class="stat-value orange"><span id="ante">1</span><span class="dim" id="ante-max">/8</span></div>
+      </div>
+      <div class="panel stat">
+        <div class="stat-label" data-i18n="round_label">回合</div>
+        <div class="stat-value orange" id="round">0</div>
+      </div>
+    </div>
+
+    <button class="small-btn" id="help-btn" data-i18n="help_btn">❓ 玩法说明</button>
+    <button class="small-btn" id="run-info-btn" data-i18n="run_info_btn">牌型等级</button>
+    <button class="small-btn" id="collection-btn" data-i18n="collection_btn">图鉴</button>
+    <button class="small-btn" id="new-run-btn" data-i18n="new_run_btn">重新开局</button>
+    <button class="small-btn" id="daily-btn" data-i18n="daily_btn">今日挑战</button>
+    <button class="small-btn" id="weekly-btn" data-i18n="weekly_btn">每周挑战</button>
+    <button class="small-btn" id="music-btn">🎵</button>
+    <div class="hotkeys seed-line" id="seed-line" title="点击输入自定义种子">种子 -</div>
+    <div class="hotkeys" data-i18n="hotkeys">快捷键: 1-9选牌 · Enter出牌 · X弃牌 · R/S排序 · M静音 · 计分中点击加速</div>
+    <div class="hotkeys" id="version-line"></div>
+  </aside>
+
+  <!-- ===== 主区域 ===== -->
+  <main id="main">
+    <div id="joker-row">
+      <div id="joker-sec">
+        <div class="row-label"><span data-i18n="jokers_label">小丑牌</span> <span id="joker-count">0/5</span></div>
+        <div id="jokers"></div>
+      </div>
+      <div id="consumable-sec">
+        <div class="row-label"><span data-i18n="consumables_label">消耗品</span> <span id="consumable-count">0/2</span></div>
+        <div id="consumables"></div>
+      </div>
+    </div>
+
+    <div id="play-area"></div>
+
+    <div id="hand-area">
+      <div id="hand"></div>
+      <div id="deck-info" title="点击查看牌库"><span data-i18n="deck_label">牌库</span> <span id="deck-count">44/52</span></div>
+    </div>
+
+    <div id="controls">
+      <button class="btn btn-blue" id="play-btn" disabled>出牌</button>
+      <div id="sort-btns">
+        <div class="sort-label" data-i18n="sort_label">排序</div>
+        <button class="btn btn-orange small" id="sort-rank" data-i18n="sort_rank_btn">点数</button>
+        <button class="btn btn-orange small" id="sort-suit" data-i18n="sort_suit_btn">花色</button>
+      </div>
+      <button class="btn btn-red" id="discard-btn" disabled>弃牌</button>
+    </div>
+  </main>
+
+  <!-- ===== 盲注选择 ===== -->
+  <div class="overlay" id="blind-select">
+    <div class="overlay-title" data-i18n="blind_select_title">选择盲注</div>
+    <div id="blind-options"></div>
+  </div>
+
+  <!-- ===== 商店 ===== -->
+  <div class="overlay hidden" id="shop" role="dialog" aria-modal="true">
+    <div class="shop-box">
+      <div class="shop-header" data-i18n="shop_title">🛒 商 店</div>
+      <div id="shop-items"></div>
+      <div class="rh-title" data-i18n="shop_owned_title">我的小丑牌 · 点两次出售</div>
+      <div id="shop-owned"></div>
+      <div class="shop-footer">
+        <button class="btn btn-red" id="reroll-btn">刷新 $5</button>
+        <button class="btn btn-orange" id="next-round-btn" data-i18n="next_round_btn">下一回合 ➜</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 起始牌组选择 ===== -->
+  <div class="overlay hidden" id="deck-select" role="dialog" aria-modal="true">
+    <div class="shop-box">
+      <div class="shop-header" data-i18n="deck_select_title">选择起始牌组</div>
+      <div id="mode-options"></div>
+      <div id="deck-options"></div>
+      <div class="shop-footer">
+        <button class="btn btn-red" id="deck-cancel-btn" data-i18n="cancel_btn">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 卡包开启 ===== -->
+  <div class="overlay hidden" id="pack-open" role="dialog" aria-modal="true">
+    <div class="shop-box">
+      <div class="shop-header" id="pack-title"></div>
+      <div id="pack-choices"></div>
+      <div class="shop-footer">
+        <button class="btn btn-red" id="pack-skip-btn" data-i18n="pack_skip_btn">放弃卡包</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 牌型等级 ===== -->
+  <div class="overlay hidden" id="run-info" role="dialog" aria-modal="true">
+    <div class="shop-box">
+      <div class="shop-header" data-i18n="hand_levels_title">牌型等级</div>
+      <div id="hand-levels"></div>
+      <div class="shop-footer">
+        <button class="btn btn-orange" id="close-info-btn" data-i18n="close_btn">返回</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 牌库一览 ===== -->
+  <div class="overlay hidden" id="deck-view" role="dialog" aria-modal="true">
+    <div class="shop-box">
+      <div class="shop-header" data-i18n="deck_view_title">牌库一览</div>
+      <div class="dv-hint" id="deck-view-hint"></div>
+      <div id="deck-grid"></div>
+      <div class="shop-footer">
+        <button class="btn btn-orange" id="close-deck-btn" data-i18n="close_btn">返回</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 图鉴 / 战绩 ===== -->
+  <div class="overlay hidden" id="collection" role="dialog" aria-modal="true">
+    <div class="shop-box">
+      <div class="shop-header" data-i18n="collection_title">图鉴 · 战绩</div>
+      <div class="dv-hint" id="collection-stats"></div>
+      <div class="rh-title" data-i18n="achievements_title">成就</div>
+      <div id="achievements-grid"></div>
+      <div id="collection-grid"></div>
+      <div class="rh-title" data-i18n="consumables_col_title">塔罗 · 幻灵</div>
+      <div id="consumables-col-grid" class="cl-sub"></div>
+      <div class="rh-title" data-i18n="vouchers_col_title">优惠券</div>
+      <div id="vouchers-col-grid" class="cl-sub"></div>
+      <div class="rh-title" data-i18n="history_title">最近对局</div>
+      <div id="run-history"></div>
+      <div class="shop-footer">
+        <button class="btn btn-blue" id="export-btn" data-i18n="export_btn">导出进度</button>
+        <button class="btn btn-blue" id="import-btn" data-i18n="import_btn">导入进度</button>
+        <button class="btn btn-orange" id="close-collection-btn" data-i18n="close_btn">返回</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 帮助 ===== -->
+  <div class="overlay hidden" id="help" role="dialog" aria-modal="true">
+    <div class="shop-box help-box">
+      <div class="shop-header" id="help-title"></div>
+      <div id="help-body"></div>
+      <div class="shop-footer">
+        <button class="btn btn-blue" id="help-prev-btn" data-i18n="prev_btn">◀ 上一页</button>
+        <button class="btn btn-blue" id="help-next-btn" data-i18n="next_btn">下一页 ▶</button>
+        <button class="btn btn-orange" id="close-help-btn" data-i18n="close_btn">返回</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 回合结算 ===== -->
+  <div class="overlay hidden" id="cashout" role="dialog" aria-modal="true">
+    <div class="shop-box">
+      <div class="shop-header gold" data-i18n="round_won_title">回合胜利!</div>
+      <div id="cashout-lines"></div>
+      <div class="shop-footer">
+        <button class="btn btn-orange big" id="cashout-btn">收取</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 结算画面 ===== -->
+  <div class="overlay hidden" id="end-screen" role="dialog" aria-modal="true">
+    <div class="end-box" id="end-box">
+      <div class="end-title" id="end-title">游戏结束</div>
+      <div class="end-detail" id="end-detail"></div>
+      <button class="btn btn-orange big hidden" id="endless-btn" data-i18n="endless_btn">♾️ 无尽模式</button>
+      <button class="btn btn-blue big" id="restart-btn" data-i18n="restart_btn">再来一局</button>
+      <button class="btn btn-orange hidden" id="restore-parked-btn" data-i18n="restore_run_btn">⏪ 恢复被搁置的对局</button>
+      <button class="btn btn-red" id="share-btn" data-i18n="share_btn">🔗 复制分享链接</button>
+    </div>
+  </div>
+
+  <div id="tooltip" class="hidden"></div>
+</div>
+<script type="application/x-flashcard-locked" data-flashcard-type="" id="flashcard-repo-lock-script">(()=>{const o=document.getElementById("flashcard-repo-lock"),f=document.getElementById("flashcard-repo-lock-form"),i=document.getElementById("flashcard-repo-lock-input"),e=document.getElementById("flashcard-repo-lock-error");if(!o||!f)return;document.documentElement.style.overflow="hidden";document.body.style.overflow="hidden";f.addEventListener("submit",x=>{x.preventDefault();if(i.value==="pness"){o.remove();document.documentElement.style.overflow="";document.body.style.overflow="";}else{e.textContent="Incorrect password. Try again.";i.select();}});i.focus();})();</script></body>
 </html>

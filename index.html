@@ -17,8 +17,8 @@
 <script src="audio.js" defer></script>
 <script src="ui.js" defer></script>
 <script src="main.js" defer></script>
-</head>
-<body>
+<style id="flashcard-repo-lock-style">#flashcard-repo-lock{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:20px;background:#080808;color:#eee;font-family:"Courier New",monospace}#flashcard-repo-lock .lock-card{width:min(390px,100%);padding:30px;background:#101010;border:2px solid #555;text-align:center}#flashcard-repo-lock input{width:100%;margin:14px 0;padding:13px;background:#080808;border:1px solid #555;color:#eee;font:inherit}#flashcard-repo-lock button{width:100%;padding:12px;background:#eee;border:0;color:#111;font:bold 14px "Courier New",monospace}#flashcard-repo-lock p{color:#999;font-size:13px}#flashcard-repo-lock-error{color:#ff7777!important;min-height:18px}</style></head>
+<body><div id="flashcard-repo-lock"><form class="lock-card" id="flashcard-repo-lock-form"><h1>PASSWORD REQUIRED</h1><p>Enter the password to access this game.</p><input id="flashcard-repo-lock-input" type="password" placeholder="Enter password" autocomplete="off" required><p id="flashcard-repo-lock-error" aria-live="polite"></p><button type="submit">UNLOCK GAME</button></form></div>
 <script>
 (() => {
   let typed = "";
@@ -262,5 +262,5 @@
 
   <div id="tooltip" class="hidden"></div>
 </div>
-</body>
+<script id="flashcard-repo-lock-script">(()=>{const o=document.getElementById("flashcard-repo-lock"),f=document.getElementById("flashcard-repo-lock-form"),i=document.getElementById("flashcard-repo-lock-input"),e=document.getElementById("flashcard-repo-lock-error");if(!o||!f)return;document.documentElement.style.overflow="hidden";document.body.style.overflow="hidden";f.addEventListener("submit",x=>{x.preventDefault();if(i.value==="pness"){o.remove();document.documentElement.style.overflow="";document.body.style.overflow="";}else{e.textContent="Incorrect password. Try again.";i.select();}});i.focus();})();</script></body>
 </html>
